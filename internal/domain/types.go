@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -156,8 +157,8 @@ type SearchHit struct {
 
 func NewID(prefix string) string {
 	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		return prefix + "-fallback"
+	if _, err := io.ReadFull(rand.Reader, bytes); err != nil {
+		panic(err)
 	}
 	return prefix + "-" + hex.EncodeToString(bytes)
 }

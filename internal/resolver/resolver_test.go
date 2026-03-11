@@ -1,14 +1,13 @@
-package resolver_test
+package resolver
 
 import (
 	"testing"
 
 	"github.com/jolovicdev/anchor-db/internal/domain"
-	"github.com/jolovicdev/anchor-db/internal/resolver"
 )
 
 func TestResolverMovesAnchorWhenLinesAreInserted(t *testing.T) {
-	svc := resolver.New()
+	svc := New()
 	anchor := domain.Anchor{
 		ID:     "anchor-1",
 		RepoID: "repo-1",
@@ -62,7 +61,7 @@ func TestResolverMovesAnchorWhenLinesAreInserted(t *testing.T) {
 }
 
 func TestResolverMarksAnchorStaleWhenCodeDisappears(t *testing.T) {
-	svc := resolver.New()
+	svc := New()
 	anchor := domain.Anchor{
 		ID:     "anchor-1",
 		RepoID: "repo-1",
@@ -93,7 +92,7 @@ func TestResolverMarksAnchorStaleWhenCodeDisappears(t *testing.T) {
 }
 
 func TestResolverRejectsSymbolMatchWhenSelectedTextAndContextDoNotMatch(t *testing.T) {
-	svc := resolver.New()
+	svc := New()
 	anchor := domain.Anchor{
 		ID:     "anchor-1",
 		RepoID: "repo-1",
@@ -137,5 +136,25 @@ func TestResolverRejectsSymbolMatchWhenSelectedTextAndContextDoNotMatch(t *testi
 	}
 	if result.Status != domain.AnchorStatusStale {
 		t.Fatalf("expected stale status, got %s", result.Status)
+	}
+}
+
+func TestLineSimilarityPenalizesReorderedLines(t *testing.T) {
+	similarity := lineSimilarity(
+		"first()\nsecond()\nthird()",
+		"second()\nfirst()\nthird()",
+	)
+	if similarity >= 0.6 {
+		t.Fatalf("expected reordered lines to fall below match threshold, got %f", similarity)
+	}
+}
+
+func TestLineSimilarityKeepsInsertedLineSimilarEnough(t *testing.T) {
+	similarity := lineSimilarity(
+		"first()\nsecond()\nthird()",
+		"first()\nlog()\nsecond()\nthird()",
+	)
+	if similarity < 0.6 {
+		t.Fatalf("expected inserted line to stay above match threshold, got %f", similarity)
 	}
 }

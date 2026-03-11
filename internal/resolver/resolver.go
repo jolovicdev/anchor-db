@@ -191,23 +191,12 @@ func lineSimilarity(left, right string) float64 {
 	if len(leftLines) == 0 || len(rightLines) == 0 {
 		return 0
 	}
-	rightSet := make(map[string]int, len(rightLines))
-	for _, line := range rightLines {
-		rightSet[line]++
-	}
-	matches := 0
-	for _, line := range leftLines {
-		if rightSet[line] == 0 {
-			continue
-		}
-		rightSet[line]--
-		matches++
-	}
 	denominator := len(leftLines)
 	if len(rightLines) > denominator {
 		denominator = len(rightLines)
 	}
-	return float64(matches) / float64(denominator)
+	distance := lineEditDistance(leftLines, rightLines)
+	return 1 - float64(distance)/float64(denominator)
 }
 
 func nonEmptyLines(content string) []string {
@@ -220,4 +209,44 @@ func nonEmptyLines(content string) []string {
 		}
 	}
 	return items
+}
+
+func lineEditDistance(left, right []string) int {
+	if len(left) == 0 {
+		return len(right)
+	}
+	if len(right) == 0 {
+		return len(left)
+	}
+	previous := make([]int, len(right)+1)
+	current := make([]int, len(right)+1)
+	for j := range previous {
+		previous[j] = j
+	}
+	for i := 1; i <= len(left); i++ {
+		current[0] = i
+		for j := 1; j <= len(right); j++ {
+			cost := 0
+			if left[i-1] != right[j-1] {
+				cost = 1
+			}
+			current[j] = minInt(
+				previous[j]+1,
+				current[j-1]+1,
+				previous[j-1]+cost,
+			)
+		}
+		previous, current = current, previous
+	}
+	return previous[len(right)]
+}
+
+func minInt(values ...int) int {
+	best := values[0]
+	for _, value := range values[1:] {
+		if value < best {
+			best = value
+		}
+	}
+	return best
 }
