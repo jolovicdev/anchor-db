@@ -50,6 +50,14 @@ func TestServiceExtractsPythonAndJavaScriptSymbols(t *testing.T) {
 	if len(jsItems) < 2 {
 		t.Fatalf("expected javascript class and function, got %d", len(jsItems))
 	}
+
+	tsItems, err := svc.Extract("typescript", "sample.ts", []byte("class Worker {}\nfunction add(a: number, b: number): number { return a + b }\n"))
+	if err != nil {
+		t.Fatalf("extract typescript symbols: %v", err)
+	}
+	if len(tsItems) < 2 {
+		t.Fatalf("expected typescript class and function, got %d", len(tsItems))
+	}
 }
 
 func TestServiceLoadsRuntimeExtractorExecutable(t *testing.T) {

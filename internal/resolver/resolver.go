@@ -62,6 +62,10 @@ func symbolMatch(content string, binding domain.Binding, symbols []domain.Symbol
 			continue
 		}
 		before, after := code.Context(content, symbol.StartLine, symbol.EndLine, 1)
+		confidence, ok := symbolConfidence(binding, selected, before, after)
+		if !ok {
+			continue
+		}
 		return domain.Binding{
 			Type:             domain.BindingTypeSymbol,
 			Ref:              binding.Ref,
@@ -78,7 +82,7 @@ func symbolMatch(content string, binding domain.Binding, symbols []domain.Symbol
 			BeforeHash:       code.HashText(before),
 			AfterContext:     after,
 			AfterHash:        code.HashText(after),
-			Confidence:       0.97,
+			Confidence:       confidence,
 		}, true
 	}
 	return domain.Binding{}, false
@@ -152,4 +156,68 @@ func surrounding(content string, start, end int) (string, string) {
 	left := code.MaxInt(0, start-120)
 	right := code.MinInt(len(content), end+120)
 	return content[left:start], content[end:right]
+}
+
+func symbolConfidence(binding domain.Binding, selected, before, after string) (float64, bool) {
+	if selected == binding.SelectedText {
+		return 0.97, true
+	}
+	if similarity := lineSimilarity(binding.SelectedText, selected); similarity >= 0.6 {
+		return 0.95, true
+	}
+	beforeMatch := binding.BeforeContext != "" && strings.Contains(before, binding.BeforeContext)
+	afterMatch := binding.AfterContext != "" && strings.Contains(after, binding.AfterContext)
+	if signatureLine(selected) != "" &&
+		signatureLine(selected) == signatureLine(binding.SelectedText) &&
+		(beforeMatch || afterMatch || lineSimilarity(binding.SelectedText, selected) >= 0.4) {
+		return 0.93, true
+	}
+	return 0, false
+}
+
+func signatureLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func lineSimilarity(left, right string) float64 {
+	leftLines := nonEmptyLines(left)
+	rightLines := nonEmptyLines(right)
+	if len(leftLines) == 0 || len(rightLines) == 0 {
+		return 0
+	}
+	rightSet := make(map[string]int, len(rightLines))
+	for _, line := range rightLines {
+		rightSet[line]++
+	}
+	matches := 0
+	for _, line := range leftLines {
+		if rightSet[line] == 0 {
+			continue
+		}
+		rightSet[line]--
+		matches++
+	}
+	denominator := len(leftLines)
+	if len(rightLines) > denominator {
+		denominator = len(rightLines)
+	}
+	return float64(matches) / float64(denominator)
+}
+
+func nonEmptyLines(content string) []string {
+	lines := strings.Split(content, "\n")
+	items := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	return items
 }

@@ -24,6 +24,7 @@ func NewService(options ...Option) *Service {
 			"go":         newGoExtractor(),
 			"python":     newPythonExtractor(),
 			"javascript": newJavaScriptExtractor(),
+			"typescript": newTypeScriptExtractor(),
 		},
 	}
 	for _, option := range options {

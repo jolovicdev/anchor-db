@@ -45,6 +45,21 @@ func TestServiceReadsWorkingTreeAndHead(t *testing.T) {
 	}
 }
 
+func TestServiceReturnsStructuredGitErrors(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	svc := repos.NewService()
+	_, err := svc.Head(ctx, root)
+	if err == nil {
+		t.Fatalf("expected git error")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "stderr:") {
+		t.Fatalf("expected stderr label in error, got %q", message)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

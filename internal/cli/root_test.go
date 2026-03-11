@@ -264,3 +264,22 @@ func TestRunRepoAndAnchorLifecycleCommands(t *testing.T) {
 		t.Fatalf("expected anchor resolve output, got %s", stdout.String())
 	}
 }
+
+func TestRunFormatsJSONAPIErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"repo_id is required"}`))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := cli.Run(context.Background(), &stdout, &stderr, []string{"anchor", "list"}, server.URL)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if strings.TrimSpace(stderr.String()) != "error: repo_id is required" {
+		t.Fatalf("unexpected stderr output: %q", stderr.String())
+	}
+}

@@ -373,12 +373,29 @@ func doRequest(client *http.Client, stdout, stderr io.Writer, req *http.Request)
 		return 1
 	}
 	if resp.StatusCode >= 400 {
-		_, _ = fmt.Fprintln(stderr, string(body))
+		message := apiError(body)
+		if message == "" {
+			message = strings.TrimSpace(string(body))
+		}
+		if message == "" {
+			message = resp.Status
+		}
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", message)
 		return 1
 	}
 	formatted := prettyJSON(body)
 	_, _ = stdout.Write(formatted)
 	return 0
+}
+
+func apiError(body []byte) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Error)
 }
 
 func doJSONRequest(ctx context.Context, client *http.Client, stdout, stderr io.Writer, method, url string, payload any) int {

@@ -91,3 +91,51 @@ func TestResolverMarksAnchorStaleWhenCodeDisappears(t *testing.T) {
 		t.Fatalf("expected stale status, got %s", result.Status)
 	}
 }
+
+func TestResolverRejectsSymbolMatchWhenSelectedTextAndContextDoNotMatch(t *testing.T) {
+	svc := resolver.New()
+	anchor := domain.Anchor{
+		ID:     "anchor-1",
+		RepoID: "repo-1",
+		Kind:   domain.AnchorKindWarning,
+		Status: domain.AnchorStatusActive,
+		Binding: domain.Binding{
+			Type:             domain.BindingTypeSymbol,
+			Path:             "calc.go",
+			Language:         "go",
+			SymbolPath:       "Add",
+			StartLine:        1,
+			StartCol:         1,
+			EndLine:          3,
+			EndCol:           2,
+			SelectedText:     "func Add(a int, b int) int {\n\treturn a + b\n}",
+			SelectedTextHash: "selected",
+			BeforeContext:    "type Calculator struct{}",
+			BeforeHash:       "before",
+			AfterContext:     "func Mul(a int, b int) int {",
+			AfterHash:        "after",
+		},
+	}
+
+	content := "package calc\n\nfunc Add(values []int) int {\n\ttotal := 0\n\tfor _, value := range values {\n\t\ttotal += value\n\t}\n\treturn total\n}\n"
+	symbols := []domain.Symbol{
+		{
+			Path:       "calc.go",
+			Language:   "go",
+			Kind:       "function",
+			SymbolPath: "Add",
+			StartLine:  3,
+			StartCol:   1,
+			EndLine:    8,
+			EndCol:     2,
+		},
+	}
+
+	result, err := svc.Resolve(anchor, content, symbols)
+	if err != nil {
+		t.Fatalf("resolve anchor: %v", err)
+	}
+	if result.Status != domain.AnchorStatusStale {
+		t.Fatalf("expected stale status, got %s", result.Status)
+	}
+}

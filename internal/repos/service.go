@@ -1,6 +1,7 @@
 package repos
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -87,9 +88,20 @@ func (s *Service) LanguageForPath(path string) string {
 func (s *Service) git(ctx context.Context, root string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
-	output, err := cmd.CombinedOutput()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("git %v: %w: %s", args, err, string(output))
+		message := fmt.Sprintf("git %v: %v", args, err)
+		if text := strings.TrimSpace(stderr.String()); text != "" {
+			message += ": stderr: " + text
+		}
+		if text := strings.TrimSpace(stdout.String()); text != "" {
+			message += ": stdout: " + text
+		}
+		return "", fmt.Errorf("%s", message)
 	}
-	return string(output), nil
+	return stdout.String(), nil
 }

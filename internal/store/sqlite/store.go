@@ -23,6 +23,24 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`pragma journal_mode = wal`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`pragma synchronous = normal`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`pragma foreign_keys = on`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`pragma busy_timeout = 5000`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	store := &Store{db: db}
 	if err := store.migrate(); err != nil {
 		db.Close()
@@ -574,7 +592,8 @@ func (s *Store) addEvent(ctx context.Context, event domain.AnchorEvent) error {
 }
 
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
+	migrations := []string{
+		`
 		create table if not exists repos (
 			id text primary key,
 			name text not null,
@@ -631,8 +650,28 @@ func (s *Store) migrate() error {
 			title,
 			body
 		);
-	`)
-	return err
+		`,
+	}
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var version int
+	if err := tx.QueryRowContext(context.Background(), `pragma user_version`).Scan(&version); err != nil {
+		return err
+	}
+	for idx := version; idx < len(migrations); idx++ {
+		if _, err := tx.ExecContext(context.Background(), migrations[idx]); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(context.Background(), fmt.Sprintf(`pragma user_version = %d`, idx+1)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func bindingEqual(left, right domain.Binding) bool {
