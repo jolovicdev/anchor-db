@@ -6,9 +6,9 @@ import (
 	"log"
 	"os"
 
-	"anchordb/internal/app"
-	"anchordb/internal/mcpserver"
-	sqlitestore "anchordb/internal/store/sqlite"
+	"github.com/jolovicdev/anchor-db/internal/app"
+	"github.com/jolovicdev/anchor-db/internal/mcpserver"
+	sqlitestore "github.com/jolovicdev/anchor-db/internal/store/sqlite"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

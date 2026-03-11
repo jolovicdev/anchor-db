@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"anchordb/internal/code"
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/code"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 )
 
 type Resolution struct {

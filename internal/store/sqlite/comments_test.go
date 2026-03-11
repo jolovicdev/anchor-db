@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"anchordb/internal/domain"
-	sqlitestore "anchordb/internal/store/sqlite"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+	sqlitestore "github.com/jolovicdev/anchor-db/internal/store/sqlite"
 )
 
 func TestStoreCreatesThreadedComments(t *testing.T) {

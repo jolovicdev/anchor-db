@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"anchordb/internal/app"
+	"github.com/jolovicdev/anchor-db/internal/app"
 )
 
 type Syncer struct {

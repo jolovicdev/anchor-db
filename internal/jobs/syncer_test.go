@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"anchordb/internal/app"
-	"anchordb/internal/jobs"
-	sqlitestore "anchordb/internal/store/sqlite"
+	"github.com/jolovicdev/anchor-db/internal/app"
+	"github.com/jolovicdev/anchor-db/internal/jobs"
+	sqlitestore "github.com/jolovicdev/anchor-db/internal/store/sqlite"
 )
 
 func TestSyncerRunOnceReResolvesTrackedAnchors(t *testing.T) {

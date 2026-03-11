@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"anchordb/internal/repos"
+	"github.com/jolovicdev/anchor-db/internal/repos"
 )
 
 func TestServiceReadsWorkingTreeAndHead(t *testing.T) {

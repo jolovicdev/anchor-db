@@ -55,17 +55,17 @@ Built-in symbol extractors:
 Install the binaries into your Go bin directory:
 
 ```bash
+go install github.com/jolovicdev/anchor-db/cmd/anchord@latest
+go install github.com/jolovicdev/anchor-db/cmd/anchorctl@latest
+go install github.com/jolovicdev/anchor-db/cmd/anchordb-mcp@latest
+```
+
+To install from a local checkout instead:
+
+```bash
 go install ./cmd/anchord
 go install ./cmd/anchorctl
 go install ./cmd/anchordb-mcp
-```
-
-If this project is published under a module path later, the same pattern becomes:
-
-```bash
-go install <module-path>/cmd/anchord@latest
-go install <module-path>/cmd/anchorctl@latest
-go install <module-path>/cmd/anchordb-mcp@latest
 ```
 
 Check where Go installs binaries with:

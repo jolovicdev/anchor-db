@@ -1,4 +1,4 @@
-module anchordb
+module github.com/jolovicdev/anchor-db
 
 go 1.25.7
 

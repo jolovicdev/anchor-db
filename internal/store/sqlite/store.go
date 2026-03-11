@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 
 	_ "modernc.org/sqlite"
 )

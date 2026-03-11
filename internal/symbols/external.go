@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 )
 
 func extractExternal(dir, language, path string, content []byte) ([]domain.Symbol, error) {

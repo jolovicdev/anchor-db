@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"anchordb/internal/app"
-	"anchordb/internal/domain"
-	"anchordb/internal/mcpserver"
+	"github.com/jolovicdev/anchor-db/internal/app"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/mcpserver"
 )
 
 type fakeService struct{}

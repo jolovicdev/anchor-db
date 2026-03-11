@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"anchordb/internal/cli"
+	"github.com/jolovicdev/anchor-db/internal/cli"
 )
 
 func main() {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"anchordb/internal/app"
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/app"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 )
 
 //go:embed templates/*.html

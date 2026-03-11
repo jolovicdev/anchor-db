@@ -7,7 +7,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 )
 
 type pythonExtractor struct {

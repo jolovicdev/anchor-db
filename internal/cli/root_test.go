@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"anchordb/internal/cli"
+	"github.com/jolovicdev/anchor-db/internal/cli"
 )
 
 func TestRunListsAnchors(t *testing.T) {

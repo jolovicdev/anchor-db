@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"anchordb/internal/symbols"
+	"github.com/jolovicdev/anchor-db/internal/symbols"
 )
 
 func TestServiceExtractsGoSymbols(t *testing.T) {

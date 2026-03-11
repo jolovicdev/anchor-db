@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"anchordb/internal/code"
-	"anchordb/internal/domain"
-	"anchordb/internal/repos"
-	"anchordb/internal/resolver"
-	"anchordb/internal/symbols"
+	"github.com/jolovicdev/anchor-db/internal/code"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/repos"
+	"github.com/jolovicdev/anchor-db/internal/resolver"
+	"github.com/jolovicdev/anchor-db/internal/symbols"
 )
 
 type Store interface {

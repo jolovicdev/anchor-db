@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"anchordb/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/domain"
 )
 
 type Option func(*Service)

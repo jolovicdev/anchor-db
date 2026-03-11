@@ -3,8 +3,8 @@ package resolver_test
 import (
 	"testing"
 
-	"anchordb/internal/domain"
-	"anchordb/internal/resolver"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+	"github.com/jolovicdev/anchor-db/internal/resolver"
 )
 
 func TestResolverMovesAnchorWhenLinesAreInserted(t *testing.T) {

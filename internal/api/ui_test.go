@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"anchordb/internal/api"
-	"anchordb/internal/app"
-	sqlitestore "anchordb/internal/store/sqlite"
+	"github.com/jolovicdev/anchor-db/internal/api"
+	"github.com/jolovicdev/anchor-db/internal/app"
+	sqlitestore "github.com/jolovicdev/anchor-db/internal/store/sqlite"
 )
 
 func TestServerRendersFileViewAndComments(t *testing.T) {
