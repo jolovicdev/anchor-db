@@ -2,6 +2,8 @@
 
 AnchorDB is a local code-memory service for Git repositories.
 
+This is experimental software. The core ideas are stable enough to use locally, but the storage format, APIs, and ergonomics may still change as the project is refined.
+
 It stores durable notes attached to files, spans, and symbols, then exposes that data through:
 
 - `anchord` for HTTP and the web viewer
