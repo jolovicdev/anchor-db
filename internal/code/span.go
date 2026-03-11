@@ -32,10 +32,10 @@ func RangeFromOffsets(content string, start, end int) (int, int, int, int) {
 
 func Context(content string, startLine, endLine int, window int) (string, string) {
 	lines := strings.Split(content, "\n")
-	beforeStart := max(0, startLine-1-window)
-	beforeEnd := max(0, startLine-1)
-	afterStart := min(len(lines), endLine)
-	afterEnd := min(len(lines), endLine+window)
+	beforeStart := MaxInt(0, startLine-1-window)
+	beforeEnd := MaxInt(0, startLine-1)
+	afterStart := MinInt(len(lines), endLine)
+	afterEnd := MinInt(len(lines), endLine+window)
 	before := strings.Join(lines[beforeStart:beforeEnd], "\n")
 	after := strings.Join(lines[afterStart:afterEnd], "\n")
 	return before, after
@@ -96,14 +96,14 @@ func offsetFor(content string, targetLine, targetCol int) (int, error) {
 	return 0, errors.New("position out of range")
 }
 
-func min(a, b int) int {
+func MinInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func max(a, b int) int {
+func MaxInt(a, b int) int {
 	if a > b {
 		return a
 	}

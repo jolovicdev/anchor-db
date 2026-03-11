@@ -105,6 +105,8 @@ type AnchorFilter struct {
 	Path       string
 	SymbolPath string
 	Status     AnchorStatus
+	Limit      int
+	Offset     int
 }
 
 type AnchorEvent struct {
@@ -125,6 +127,31 @@ type Comment struct {
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type SearchQuery struct {
+	Query      string
+	RepoID     string
+	Path       string
+	SymbolPath string
+	Kind       AnchorKind
+	Limit      int
+	Offset     int
+}
+
+type SearchHit struct {
+	DocumentType string     `json:"document_type"`
+	DocumentID   string     `json:"document_id"`
+	AnchorID     string     `json:"anchor_id"`
+	CommentID    string     `json:"comment_id,omitempty"`
+	RepoID       string     `json:"repo_id"`
+	Path         string     `json:"path"`
+	SymbolPath   string     `json:"symbol_path,omitempty"`
+	Kind         AnchorKind `json:"kind,omitempty"`
+	Title        string     `json:"title,omitempty"`
+	Body         string     `json:"body"`
+	Snippet      string     `json:"snippet"`
+	Score        float64    `json:"score"`
 }
 
 func NewID(prefix string) string {

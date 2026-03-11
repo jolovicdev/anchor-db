@@ -17,14 +17,17 @@ type Store interface {
 	CreateRepo(context.Context, domain.Repo) (domain.Repo, error)
 	ListRepos(context.Context) ([]domain.Repo, error)
 	GetRepo(context.Context, string) (domain.Repo, error)
+	UpdateRepo(context.Context, domain.Repo) (domain.Repo, error)
+	DeleteRepo(context.Context, string) error
 	CreateAnchor(context.Context, domain.Anchor) (domain.Anchor, error)
-	UpdateAnchor(context.Context, domain.Anchor) (domain.Anchor, error)
+	UpdateAnchor(context.Context, domain.Anchor, string) (domain.Anchor, error)
 	GetAnchor(context.Context, string) (domain.Anchor, error)
 	ListAnchors(context.Context, domain.AnchorFilter) ([]domain.Anchor, error)
 	ApplyResolution(context.Context, string, domain.Binding, domain.AnchorStatus, string, float64) (domain.Anchor, error)
 	ListAnchorEvents(context.Context, string) ([]domain.AnchorEvent, error)
 	CreateComment(context.Context, domain.Comment) (domain.Comment, error)
 	ListComments(context.Context, string) ([]domain.Comment, error)
+	Search(context.Context, domain.SearchQuery) ([]domain.SearchHit, error)
 }
 
 type Service struct {
@@ -48,6 +51,16 @@ type CreateAnchorInput struct {
 	Author    string
 	Tags      []string
 	Symbol    string
+}
+
+type UpdateAnchorInput struct {
+	ID          string
+	Kind        string
+	Title       string
+	Body        string
+	Author      string
+	Tags        []string
+	ReplaceTags bool
 }
 
 type ContextRequest struct {
@@ -114,6 +127,46 @@ func (s *Service) RegisterRepo(ctx context.Context, name, root string) (domain.R
 
 func (s *Service) ListRepos(ctx context.Context) ([]domain.Repo, error) {
 	return s.store.ListRepos(ctx)
+}
+
+func (s *Service) GetRepo(ctx context.Context, id string) (domain.Repo, error) {
+	return s.store.GetRepo(ctx, id)
+}
+
+func (s *Service) SyncRepo(ctx context.Context, id string) (domain.Repo, error) {
+	repo, err := s.store.GetRepo(ctx, id)
+	if err != nil {
+		return domain.Repo{}, err
+	}
+	head, err := s.repos.Head(ctx, repo.RootPath)
+	if err != nil {
+		return domain.Repo{}, err
+	}
+	repo.DefaultRef = head
+	updatedRepo, err := s.store.UpdateRepo(ctx, repo)
+	if err != nil {
+		return domain.Repo{}, err
+	}
+	anchors, err := s.listResolvableAnchors(ctx, repo.ID, "")
+	if err != nil {
+		return domain.Repo{}, err
+	}
+	seen := map[string]struct{}{}
+	for _, anchor := range anchors {
+		key := anchor.Binding.Ref + "::" + anchor.Binding.Path
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, err := s.ResolvePath(ctx, repo.ID, anchor.Binding.Ref, anchor.Binding.Path); err != nil {
+			return domain.Repo{}, err
+		}
+	}
+	return updatedRepo, nil
+}
+
+func (s *Service) RemoveRepo(ctx context.Context, id string) error {
+	return s.store.DeleteRepo(ctx, id)
 }
 
 func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (domain.Anchor, error) {
@@ -187,6 +240,76 @@ func (s *Service) GetAnchor(ctx context.Context, id string) (domain.Anchor, erro
 	return s.store.GetAnchor(ctx, id)
 }
 
+func (s *Service) UpdateAnchor(ctx context.Context, input UpdateAnchorInput) (domain.Anchor, error) {
+	anchor, err := s.store.GetAnchor(ctx, input.ID)
+	if err != nil {
+		return domain.Anchor{}, err
+	}
+	if strings.TrimSpace(input.Kind) != "" {
+		anchor.Kind = normalizeKind(input.Kind)
+	}
+	if strings.TrimSpace(input.Title) != "" {
+		anchor.Title = strings.TrimSpace(input.Title)
+	}
+	if strings.TrimSpace(input.Body) != "" {
+		anchor.Body = strings.TrimSpace(input.Body)
+	}
+	if strings.TrimSpace(input.Author) != "" {
+		anchor.Author = strings.TrimSpace(input.Author)
+	}
+	if input.ReplaceTags {
+		anchor.Tags = input.Tags
+	}
+	if strings.TrimSpace(anchor.Title) == "" {
+		return domain.Anchor{}, errors.New("title is required")
+	}
+	if strings.TrimSpace(anchor.Body) == "" {
+		return domain.Anchor{}, errors.New("body is required")
+	}
+	if strings.TrimSpace(anchor.Author) == "" {
+		return domain.Anchor{}, errors.New("author is required")
+	}
+	return s.store.UpdateAnchor(ctx, anchor, "anchor updated")
+}
+
+func (s *Service) CloseAnchor(ctx context.Context, id string) (domain.Anchor, error) {
+	anchor, err := s.store.GetAnchor(ctx, id)
+	if err != nil {
+		return domain.Anchor{}, err
+	}
+	anchor.Status = domain.AnchorStatusArchived
+	return s.store.UpdateAnchor(ctx, anchor, "anchor closed")
+}
+
+func (s *Service) ReopenAnchor(ctx context.Context, id string) (domain.Anchor, error) {
+	anchor, err := s.store.GetAnchor(ctx, id)
+	if err != nil {
+		return domain.Anchor{}, err
+	}
+	anchor.Status = domain.AnchorStatusActive
+	return s.store.UpdateAnchor(ctx, anchor, "anchor reopened")
+}
+
+func (s *Service) ResolveAnchor(ctx context.Context, id string) (domain.Anchor, error) {
+	anchor, err := s.store.GetAnchor(ctx, id)
+	if err != nil {
+		return domain.Anchor{}, err
+	}
+	if anchor.Status != domain.AnchorStatusActive && anchor.Status != domain.AnchorStatusStale {
+		return domain.Anchor{}, errors.New("only active or stale anchors can be resolved")
+	}
+	updated, err := s.ResolvePath(ctx, anchor.RepoID, anchor.Binding.Ref, anchor.Binding.Path)
+	if err != nil {
+		return domain.Anchor{}, err
+	}
+	for _, item := range updated {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return s.store.GetAnchor(ctx, id)
+}
+
 func (s *Service) CreateComment(ctx context.Context, anchorID, parentID, author, body string) (domain.Comment, error) {
 	if _, err := s.store.GetAnchor(ctx, anchorID); err != nil {
 		return domain.Comment{}, err
@@ -202,6 +325,10 @@ func (s *Service) CreateComment(ctx context.Context, anchorID, parentID, author,
 
 func (s *Service) ListComments(ctx context.Context, anchorID string) ([]domain.Comment, error) {
 	return s.store.ListComments(ctx, anchorID)
+}
+
+func (s *Service) Search(ctx context.Context, query domain.SearchQuery) ([]domain.SearchHit, error) {
+	return s.store.Search(ctx, query)
 }
 
 func (s *Service) Context(ctx context.Context, request ContextRequest) (ContextResponse, error) {
@@ -233,10 +360,7 @@ func (s *Service) ResolvePath(ctx context.Context, repoID, ref, path string) ([]
 	if err != nil {
 		return nil, err
 	}
-	anchors, err := s.store.ListAnchors(ctx, domain.AnchorFilter{
-		RepoID: repoID,
-		Path:   path,
-	})
+	anchors, err := s.listResolvableAnchors(ctx, repoID, path)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +436,7 @@ func (s *Service) ResolveAll(ctx context.Context) error {
 		return err
 	}
 	for _, repo := range repos {
-		anchors, err := s.store.ListAnchors(ctx, domain.AnchorFilter{RepoID: repo.ID, Status: domain.AnchorStatusActive})
+		anchors, err := s.listResolvableAnchors(ctx, repo.ID, "")
 		if err != nil {
 			return err
 		}
@@ -329,6 +453,26 @@ func (s *Service) ResolveAll(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) listResolvableAnchors(ctx context.Context, repoID, path string) ([]domain.Anchor, error) {
+	active, err := s.store.ListAnchors(ctx, domain.AnchorFilter{
+		RepoID: repoID,
+		Path:   path,
+		Status: domain.AnchorStatusActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	stale, err := s.store.ListAnchors(ctx, domain.AnchorFilter{
+		RepoID: repoID,
+		Path:   path,
+		Status: domain.AnchorStatusStale,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(active, stale...), nil
 }
 
 func findSymbol(symbols []domain.Symbol, startLine, endLine int) string {

@@ -149,21 +149,7 @@ func occurrences(content, needle string) []int {
 }
 
 func surrounding(content string, start, end int) (string, string) {
-	left := max(0, start-120)
-	right := min(len(content), end+120)
+	left := code.MaxInt(0, start-120)
+	right := code.MinInt(len(content), end+120)
 	return content[left:start], content[end:right]
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
