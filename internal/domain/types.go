@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -28,6 +30,56 @@ const (
 	AnchorKindInvariant AnchorKind = "invariant"
 	AnchorKindQuestion  AnchorKind = "question"
 )
+
+// AnchorKinds lists every valid kind, in the order error messages report them.
+var AnchorKinds = []AnchorKind{
+	AnchorKindWarning,
+	AnchorKindTodo,
+	AnchorKindHandoff,
+	AnchorKindRationale,
+	AnchorKindInvariant,
+	AnchorKindQuestion,
+}
+
+// ParseAnchorKind resolves a caller-supplied kind. An empty value takes the
+// default; anything else must name a real kind.
+//
+// This used to fall back to the default for unrecognized input, which quietly
+// replaced what the caller asked for -- a misspelled kind was stored as
+// "warning" and the mistake was invisible afterwards.
+func ParseAnchorKind(value string) (AnchorKind, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return AnchorKindWarning, nil
+	}
+	for _, kind := range AnchorKinds {
+		if AnchorKind(trimmed) == kind {
+			return kind, nil
+		}
+	}
+	names := make([]string, len(AnchorKinds))
+	for i, kind := range AnchorKinds {
+		names[i] = string(kind)
+	}
+	return "", fmt.Errorf("unknown kind %q: must be one of %s", value, strings.Join(names, ", "))
+}
+
+// ParseAnchorStatus resolves a caller-supplied status filter. An empty value
+// means "no filter"; anything unrecognized is refused rather than silently
+// matching nothing.
+func ParseAnchorStatus(value string) (AnchorStatus, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return "", nil
+	}
+	for _, status := range []AnchorStatus{AnchorStatusActive, AnchorStatusStale, AnchorStatusArchived} {
+		if AnchorStatus(trimmed) == status {
+			return status, nil
+		}
+	}
+	return "", fmt.Errorf("unknown status %q: must be one of %s, %s, %s",
+		value, AnchorStatusActive, AnchorStatusStale, AnchorStatusArchived)
+}
 
 type AnchorStatus string
 

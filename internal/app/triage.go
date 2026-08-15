@@ -169,6 +169,13 @@ func (s *Service) AcceptRelocation(ctx context.Context, input RelocateInput) (do
 		reason = "relocation accepted: " + chosen.Reason
 	}
 
+	// Distinguish "you gave me nothing" from "you gave me something invalid".
+	// Reporting the second for the first sent callers hunting for a bad number
+	// they never supplied.
+	if input.Candidate == nil && startLine == 0 && endLine == 0 && startCol == 0 && endCol == 0 {
+		return domain.Anchor{}, errors.New("nothing to relocate to: pass candidate, " +
+			"or start_line, start_col, end_line and end_col")
+	}
 	if startLine < 1 || endLine < 1 || startCol < 1 || endCol < 1 {
 		return domain.Anchor{}, errors.New("line and column values must be positive")
 	}

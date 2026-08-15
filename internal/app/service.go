@@ -79,21 +79,24 @@ type ContextResponse struct {
 	Anchors []domain.Anchor `json:"anchors"`
 }
 
+// FileView carries JSON tags because it crosses the MCP and HTTP boundaries.
+// Without them it encoded Go field names, so this one tool answered in
+// CamelCase while every other tool answered in snake_case.
 type FileView struct {
-	Repo     domain.Repo
-	Ref      string
-	Path     string
-	Content  string
-	Lines    []FileLine
-	Diff     string
-	Files    []string
-	Anchors  []domain.Anchor
-	Comments map[string][]domain.Comment
-	History  map[string][]AnchorHistoryEntry
+	Repo     domain.Repo                     `json:"repo"`
+	Ref      string                          `json:"ref"`
+	Path     string                          `json:"path"`
+	Content  string                          `json:"content"`
+	Lines    []FileLine                      `json:"lines"`
+	Diff     string                          `json:"diff"`
+	Files    []string                        `json:"files"`
+	Anchors  []domain.Anchor                 `json:"anchors"`
+	Comments map[string][]domain.Comment     `json:"comments"`
+	History  map[string][]AnchorHistoryEntry `json:"history"`
 	// Candidates holds relocation suggestions, populated only for stale
 	// anchors: computing them costs a parse of the file, and an anchor that
 	// resolved cleanly has nothing to triage.
-	Candidates map[string][]RelocationCandidate
+	Candidates map[string][]RelocationCandidate `json:"candidates"`
 }
 
 // AnchorHistoryEntry is one step of an anchor's life, flattened for display:
@@ -108,15 +111,15 @@ type AnchorHistoryEntry struct {
 }
 
 type FileLine struct {
-	Number      int
-	Text        string
-	Highlighted bool
+	Number      int    `json:"number"`
+	Text        string `json:"text"`
+	Highlighted bool   `json:"highlighted"`
 	// Stale marks a line covered by an anchor that lost its place, so the
 	// gutter can distinguish "a note lives here" from "a note is lost here".
-	Stale bool
+	Stale bool `json:"stale"`
 	// Starts lists anchors beginning on this line, giving the viewer a scroll
 	// target for each anchor card.
-	Starts []string
+	Starts []string `json:"starts,omitempty"`
 }
 
 func NewService(store Store) (*Service, error) {
@@ -142,6 +145,19 @@ func (s *Service) RegisterRepo(ctx context.Context, name, root string) (domain.R
 	}
 	if strings.TrimSpace(name) == "" {
 		name = filepath.Base(absRoot)
+	}
+	// Registering the same checkout twice used to mint a second repo with its own
+	// ID, splitting one repository's anchors across two records that no query
+	// joins back together. Re-registering is how a setup step gets re-run, so it
+	// returns what is already there rather than failing.
+	existing, err := s.store.ListRepos(ctx)
+	if err != nil {
+		return domain.Repo{}, err
+	}
+	for _, repo := range existing {
+		if repo.RootPath == absRoot {
+			return repo, nil
+		}
 	}
 	return s.store.CreateRepo(ctx, domain.Repo{
 		ID:         domain.NewID("repo"),
@@ -246,10 +262,21 @@ func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (do
 	symbolPath := input.Symbol
 	if symbolPath == "" {
 		symbolPath = findSymbol(symbols, input.StartLine, input.EndLine)
+	} else if !hasSymbol(symbols, symbolPath) {
+		// An explicit symbol used to be taken on trust, so an anchor could claim a
+		// symbol from another file entirely. Symbol matching then relocated the
+		// anchor onto whatever that name resolved to later, which is worse than
+		// having no symbol at all.
+		return domain.Anchor{}, fmt.Errorf("symbol %q not found in %s%s",
+			symbolPath, input.Path, nearestSymbolHint(symbols))
 	}
 	bindingType := domain.BindingTypeSpan
 	if symbolPath != "" {
 		bindingType = domain.BindingTypeSymbol
+	}
+	kind, err := domain.ParseAnchorKind(input.Kind)
+	if err != nil {
+		return domain.Anchor{}, err
 	}
 	// Record the commit these line numbers were taken against so later
 	// resolution can relocate the span from git history. That is the ref that was
@@ -263,7 +290,7 @@ func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (do
 	anchor := domain.Anchor{
 		ID:        domain.NewID("anchor"),
 		RepoID:    repo.ID,
-		Kind:      normalizeKind(input.Kind),
+		Kind:      kind,
 		Status:    domain.AnchorStatusActive,
 		Title:     input.Title,
 		Body:      input.Body,
@@ -311,7 +338,11 @@ func (s *Service) UpdateAnchor(ctx context.Context, input UpdateAnchorInput) (do
 		return domain.Anchor{}, err
 	}
 	if strings.TrimSpace(input.Kind) != "" {
-		anchor.Kind = normalizeKind(input.Kind)
+		kind, err := domain.ParseAnchorKind(input.Kind)
+		if err != nil {
+			return domain.Anchor{}, err
+		}
+		anchor.Kind = kind
 	}
 	if strings.TrimSpace(input.Title) != "" {
 		anchor.Title = strings.TrimSpace(input.Title)
@@ -387,6 +418,24 @@ func (s *Service) ResolveAnchor(ctx context.Context, id string) (domain.Anchor, 
 func (s *Service) CreateComment(ctx context.Context, anchorID, parentID, author, body string) (domain.Comment, error) {
 	if _, err := s.store.GetAnchor(ctx, anchorID); err != nil {
 		return domain.Comment{}, err
+	}
+	// Without this the insert failed on its foreign key, surfacing a SQLite
+	// constraint number to the caller instead of saying what was wrong.
+	if parentID = strings.TrimSpace(parentID); parentID != "" {
+		siblings, err := s.store.ListComments(ctx, anchorID)
+		if err != nil {
+			return domain.Comment{}, err
+		}
+		found := false
+		for _, comment := range siblings {
+			if comment.ID == parentID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return domain.Comment{}, fmt.Errorf("parent comment %q not found on anchor %s", parentID, anchorID)
+		}
 	}
 	return s.store.CreateComment(ctx, domain.Comment{
 		ID:       domain.NewID("comment"),
@@ -627,6 +676,32 @@ func (s *Service) listResolvableAnchors(ctx context.Context, repoID, path string
 	return append(active, stale...), nil
 }
 
+func hasSymbol(symbols []domain.Symbol, path string) bool {
+	for _, symbol := range symbols {
+		if symbol.SymbolPath == path {
+			return true
+		}
+	}
+	return false
+}
+
+// nearestSymbolHint lists what the file does define, so a rejected symbol comes
+// with enough to correct the call rather than just a refusal.
+func nearestSymbolHint(symbols []domain.Symbol) string {
+	if len(symbols) == 0 {
+		return " (no symbols were extracted from this file)"
+	}
+	const limit = 8
+	names := make([]string, 0, limit)
+	for _, symbol := range symbols {
+		if len(names) == limit {
+			return " (available: " + strings.Join(names, ", ") + ", ...)"
+		}
+		names = append(names, symbol.SymbolPath)
+	}
+	return " (available: " + strings.Join(names, ", ") + ")"
+}
+
 func findSymbol(symbols []domain.Symbol, startLine, endLine int) string {
 	best := ""
 	bestSize := 0
@@ -669,23 +744,6 @@ func validateCreateInput(input CreateAnchorInput) error {
 		return errors.New("end_col must be >= start_col when on the same line")
 	}
 	return nil
-}
-
-func normalizeKind(value string) domain.AnchorKind {
-	switch domain.AnchorKind(strings.ToLower(strings.TrimSpace(value))) {
-	case domain.AnchorKindTodo:
-		return domain.AnchorKindTodo
-	case domain.AnchorKindHandoff:
-		return domain.AnchorKindHandoff
-	case domain.AnchorKindRationale:
-		return domain.AnchorKindRationale
-	case domain.AnchorKindInvariant:
-		return domain.AnchorKindInvariant
-	case domain.AnchorKindQuestion:
-		return domain.AnchorKindQuestion
-	default:
-		return domain.AnchorKindWarning
-	}
 }
 
 func buildFileLines(content string, anchors []domain.Anchor) []FileLine {
