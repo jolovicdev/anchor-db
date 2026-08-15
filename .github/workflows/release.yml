@@ -1,0 +1,292 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach artifacts to (e.g. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  # Must match the `name` in server.json.
+  MCP_NAME: io.github.jolovicdev/anchordb
+
+jobs:
+  # AnchorDB links tree-sitter, so every binary needs cgo and therefore a C
+  # toolchain for its target. Rather than maintain cross-compilers, each
+  # platform is built on a runner of that platform -- nothing is emulated and
+  # nothing is stubbed.
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, goos: linux, goarch: amd64 }
+          - { runner: ubuntu-24.04-arm, goos: linux, goarch: arm64 }
+          - { runner: macos-15-intel, goos: darwin, goarch: amd64 }
+          - { runner: macos-15, goos: darwin, goarch: arm64 }
+          - { runner: windows-latest, goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          name="anchordb_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "dist/${name}"
+
+          # -buildvcs=false keeps the version out of the hands of VCS stamping,
+          # which reports the working-tree state and would override the value
+          # injected below. The tag is the only thing that should name a release.
+          CGO_ENABLED=1 go build \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags "-s -w -X github.com/jolovicdev/anchor-db/internal/version.Version=${version}" \
+            -o "dist/${name}/" \
+            ./cmd/anchordb-mcp ./cmd/anchorctl ./cmd/anchord
+
+          cp README.md LICENSE "dist/${name}/"
+
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            7z a "${name}.zip" "${name}" > /dev/null
+          else
+            tar czf "${name}.tar.gz" "${name}"
+          fi
+
+      - name: Smoke test
+        # Only the native pair can actually run here; the others are checked by
+        # the platform they were built on when someone downloads them.
+        if: matrix.goos != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          bin="dist/anchordb_${version}_${{ matrix.goos }}_${{ matrix.goarch }}/anchordb-mcp"
+          got="$("${bin}" --version)"
+          echo "${got}"
+          [ "${got}" = "anchordb-mcp ${version}" ] || {
+            echo "version mismatch: want 'anchordb-mcp ${version}'" >&2
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum -- * > checksums.txt
+          cat checksums.txt
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The tag may already have a release (re-running to attach binaries to
+          # an existing one) or may not (a fresh tag push).
+          if ! gh release view "${TAG}" > /dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --title "AnchorDB ${TAG#v}" \
+              --generate-notes
+          fi
+          gh release upload "${TAG}" dist/* --clobber
+
+  # Built per-architecture on a runner of that architecture, then joined into
+  # one manifest, so neither image is produced under emulation.
+  image:
+    name: image ${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, platform: linux/amd64 }
+          - { runner: ubuntu-24.04-arm, platform: linux/arm64 }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ inputs.tag || github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ inputs.tag || github.ref_name }}
+            io.modelcontextprotocol.server.name=${{ env.MCP_NAME }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      # The manifest job needs the digest of every architecture, and jobs cannot
+      # accumulate outputs across a matrix, so each one is passed along as an
+      # empty file named after its digest.
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest='${{ steps.push.outputs.digest }}'
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: image manifest
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Create and push the manifest list
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          refs=""
+          for digest in /tmp/digests/*; do
+            refs="${refs} ${IMAGE}@sha256:$(basename "${digest}")"
+          done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${version}" \
+            --tag "${IMAGE}:latest" \
+            ${refs}
+          docker buildx imagetools inspect "${IMAGE}:${version}"
+
+  # The MCP Registry stores metadata only, so this runs last -- it points at the
+  # image the previous job published.
+  registry:
+    name: mcp registry
+    needs: [release, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+          mcp-publisher --help
+
+      - name: Pin server.json to this tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # server.json is committed with the current version; rewrite it so a
+          # release always advertises its own artifacts, whatever is in the tree.
+          python3 - "$version" <<'PY'
+          import json, sys
+
+          version = sys.argv[1]
+          with open("server.json") as f:
+              doc = json.load(f)
+
+          doc["version"] = version
+          for package in doc.get("packages", []):
+              identifier = package.get("identifier", "")
+              if package.get("registryType") == "oci" and ":" in identifier:
+                  package["identifier"] = identifier.rsplit(":", 1)[0] + ":" + version
+
+          with open("server.json", "w") as f:
+              json.dump(doc, f, indent=2)
+              f.write("\n")
+
+          print(json.dumps(doc, indent=2))
+          PY
+
+      - name: Publish
+        run: |
+          set -euo pipefail
+          mcp-publisher login github-oidc
+          mcp-publisher publish

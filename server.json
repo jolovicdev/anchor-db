@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jolovicdev/anchordb",
+  "title": "AnchorDB",
+  "description": "Persistent code memory for coding agents: notes pinned to files, line ranges, and symbols that follow the code as it moves.",
+  "repository": {
+    "url": "https://github.com/jolovicdev/anchor-db",
+    "source": "github"
+  },
+  "version": "1.0.1",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/jolovicdev/anchor-db:1.0.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
