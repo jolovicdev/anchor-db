@@ -87,11 +87,13 @@ func New(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_create",
 		Description: "Create a new AnchorDB anchor attached to a file range.",
+		InputSchema: schemaAcceptingStringLists[createAnchorInput](),
 	}, api.anchorCreate)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_update",
 		Description: "Update anchor metadata such as kind, title, body, author, or tags.",
+		InputSchema: schemaAcceptingStringLists[anchorUpdateInput](),
 	}, api.anchorUpdate)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -255,19 +257,19 @@ type reposOutput struct {
 }
 
 type createAnchorInput struct {
-	RepoID    string   `json:"repo_id" jsonschema:"AnchorDB repo ID."`
-	Ref       string   `json:"ref" jsonschema:"Git ref, branch, or WORKTREE."`
-	Path      string   `json:"path" jsonschema:"Repo-relative file path."`
-	StartLine int      `json:"start_line" jsonschema:"1-based starting line."`
-	StartCol  int      `json:"start_col" jsonschema:"1-based starting column."`
-	EndLine   int      `json:"end_line" jsonschema:"1-based ending line."`
-	EndCol    int      `json:"end_col" jsonschema:"1-based ending column."`
-	Kind      string   `json:"kind" jsonschema:"warning|todo|handoff|rationale|invariant|question."`
-	Title     string   `json:"title" jsonschema:"Short anchor title."`
-	Body      string   `json:"body" jsonschema:"Main anchor body."`
-	Author    string   `json:"author" jsonschema:"Actor identity, e.g. agent://codex."`
-	Tags      []string `json:"tags,omitempty" jsonschema:"Optional tag list."`
-	Symbol    string   `json:"symbol,omitempty" jsonschema:"Optional explicit symbol path."`
+	RepoID    string     `json:"repo_id" jsonschema:"AnchorDB repo ID."`
+	Ref       string     `json:"ref" jsonschema:"Ref to read the span from: a commit, branch, or WORKTREE. The anchor follows the working tree from then on."`
+	Path      string     `json:"path" jsonschema:"Repo-relative file path."`
+	StartLine int        `json:"start_line" jsonschema:"1-based starting line."`
+	StartCol  int        `json:"start_col" jsonschema:"1-based starting column."`
+	EndLine   int        `json:"end_line" jsonschema:"1-based ending line."`
+	EndCol    int        `json:"end_col" jsonschema:"1-based ending column."`
+	Kind      string     `json:"kind" jsonschema:"warning|todo|handoff|rationale|invariant|question."`
+	Title     string     `json:"title" jsonschema:"Short anchor title."`
+	Body      string     `json:"body" jsonschema:"Main anchor body."`
+	Author    string     `json:"author" jsonschema:"Actor identity, e.g. agent://codex."`
+	Tags      stringList `json:"tags,omitempty" jsonschema:"Optional tag list."`
+	Symbol    string     `json:"symbol,omitempty" jsonschema:"Optional explicit symbol path."`
 }
 
 type anchorIDInput struct {
@@ -275,12 +277,12 @@ type anchorIDInput struct {
 }
 
 type anchorUpdateInput struct {
-	AnchorID string   `json:"anchor_id" jsonschema:"AnchorDB anchor ID."`
-	Kind     string   `json:"kind,omitempty" jsonschema:"Optional new kind."`
-	Title    string   `json:"title,omitempty" jsonschema:"Optional new title."`
-	Body     string   `json:"body,omitempty" jsonschema:"Optional new body."`
-	Author   string   `json:"author,omitempty" jsonschema:"Optional new author."`
-	Tags     []string `json:"tags,omitempty" jsonschema:"Optional replacement tag list."`
+	AnchorID string     `json:"anchor_id" jsonschema:"AnchorDB anchor ID."`
+	Kind     string     `json:"kind,omitempty" jsonschema:"Optional new kind."`
+	Title    string     `json:"title,omitempty" jsonschema:"Optional new title."`
+	Body     string     `json:"body,omitempty" jsonschema:"Optional new body."`
+	Author   string     `json:"author,omitempty" jsonschema:"Optional new author."`
+	Tags     stringList `json:"tags,omitempty" jsonschema:"Optional replacement tag list."`
 }
 
 type commentInput struct {
