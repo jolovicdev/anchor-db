@@ -190,12 +190,16 @@ func (s *Service) resolveRepoPaths(ctx context.Context, repoID string) error {
 	seen := map[string]struct{}{}
 	var errs []error
 	for _, anchor := range anchors {
-		key := anchor.Binding.Ref + "::" + anchor.Binding.Path
-		if _, ok := seen[key]; ok {
+		// Always against the working tree, never the ref an anchor recorded.
+		// Re-resolving an anchor in the snapshot it was created in compares that
+		// snapshot with itself: the span always matches, so the anchor stays
+		// active on line numbers the file no longer has, edits after that commit
+		// are invisible, and it can never reach the stale queue.
+		if _, ok := seen[anchor.Binding.Path]; ok {
 			continue
 		}
-		seen[key] = struct{}{}
-		if _, err := s.ResolvePath(ctx, repoID, anchor.Binding.Ref, anchor.Binding.Path); err != nil {
+		seen[anchor.Binding.Path] = struct{}{}
+		if _, err := s.ResolvePath(ctx, repoID, repos.RefWorktree, anchor.Binding.Path); err != nil {
 			errs = append(errs, fmt.Errorf("resolve %s: %w", anchor.Binding.Path, err))
 		}
 	}
@@ -248,9 +252,11 @@ func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (do
 		bindingType = domain.BindingTypeSymbol
 	}
 	// Record the commit these line numbers were taken against so later
-	// resolution can relocate the span from git history. A repo with no commits
-	// yet simply leaves this empty and falls back to text matching.
-	baseCommit, err := s.repos.ResolveCommit(ctx, repo.RootPath, "")
+	// resolution can relocate the span from git history. That is the ref that was
+	// just read, which is not HEAD whenever an anchor is created against an older
+	// ref. A repo with no commits yet simply leaves this empty and falls back to
+	// text matching.
+	baseCommit, err := s.repos.ResolveCommit(ctx, repo.RootPath, ref)
 	if err != nil {
 		baseCommit = ""
 	}
@@ -265,8 +271,12 @@ func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (do
 		SourceRef: ref,
 		Tags:      input.Tags,
 		Binding: domain.Binding{
-			Type:             bindingType,
-			Ref:              ref,
+			Type: bindingType,
+			// An anchor tracks the working tree from here on. Which ref it was
+			// read from is provenance and is kept in SourceRef and BaseCommit;
+			// storing it here instead pinned resolution to a snapshot that can
+			// never change again.
+			Ref:              repos.RefWorktree,
 			Path:             input.Path,
 			Language:         language,
 			SymbolPath:       symbolPath,

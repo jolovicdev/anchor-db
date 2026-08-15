@@ -103,11 +103,11 @@ func (s *Service) candidatesFor(ctx context.Context, anchor domain.Anchor, limit
 	if err != nil {
 		return nil, err
 	}
-	ref := anchor.Binding.Ref
-	if ref == "" {
-		ref = repos.RefWorktree
-	}
-	content, err := s.repos.ReadFile(ctx, repo.RootPath, ref, anchor.Binding.Path)
+	// Suggestions have to describe the file as it is now. Reading the ref the
+	// anchor was created against would offer places in a snapshot nobody is
+	// editing, which is how a stale anchor came to be offered the range it
+	// already had.
+	content, err := s.repos.ReadFile(ctx, repo.RootPath, repos.RefWorktree, anchor.Binding.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", anchor.Binding.Path, err)
 	}
@@ -121,7 +121,7 @@ func (s *Service) candidatesFor(ctx context.Context, anchor domain.Anchor, limit
 		Anchor:  anchor,
 		Content: string(content),
 		Symbols: symbols,
-		Lines:   s.lineMap(ctx, repo.RootPath, ref, anchor.Binding.Path, anchor.Binding.BaseCommit),
+		Lines:   s.lineMap(ctx, repo.RootPath, repos.RefWorktree, anchor.Binding.Path, anchor.Binding.BaseCommit),
 	}, limit)
 
 	out := make([]RelocationCandidate, 0, len(ranked))
@@ -180,11 +180,10 @@ func (s *Service) AcceptRelocation(ctx context.Context, input RelocateInput) (do
 	if err != nil {
 		return domain.Anchor{}, err
 	}
-	ref := anchor.Binding.Ref
-	if ref == "" {
-		ref = repos.RefWorktree
-	}
-	content, err := s.repos.ReadFile(ctx, repo.RootPath, ref, anchor.Binding.Path)
+	// The line numbers being accepted describe the file on disk, so the span has
+	// to be read from there. Reading them out of the creation ref bound the
+	// anchor to whatever occupied those lines back then instead.
+	content, err := s.repos.ReadFile(ctx, repo.RootPath, repos.RefWorktree, anchor.Binding.Path)
 	if err != nil {
 		return domain.Anchor{}, err
 	}
