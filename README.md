@@ -11,9 +11,13 @@ comes next. Everything stays local: one SQLite file, your git repositories, no
 network calls, no account.
 
 ```bash
-go install github.com/jolovicdev/anchor-db/cmd/anchordb-mcp@latest
+curl -fsSL https://raw.githubusercontent.com/jolovicdev/anchor-db/master/install.sh | sh
 claude mcp add anchordb -- anchordb-mcp --db ~/.anchordb/anchor.db
 ```
+
+No account, no API key, and nothing to run in the background. `git` is the only
+requirement; prebuilt binaries cover Linux, macOS, and Windows, and there is a
+[container image](#with-docker) and a [Go install](#with-go) path too.
 
 Three ways in, over the same data:
 
@@ -138,7 +142,33 @@ Built-in symbol extractors:
 
 ## Install
 
-Requires Go 1.25 or newer and git.
+`git` is the only runtime requirement. Every release ships prebuilt binaries for
+Linux, macOS, and Windows, so a Go toolchain is only needed if you build from
+source.
+
+Only `anchordb-mcp` is needed to use AnchorDB from a coding agent. `anchorctl`
+and `anchord` add the command-line client and the web viewer.
+
+### Download a binary
+
+Linux and macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jolovicdev/anchor-db/master/install.sh | sh
+```
+
+That fetches the archive for your platform, verifies it against the release
+checksums, and installs into `~/.local/bin`. Set `ANCHORDB_INSTALL_DIR` to put it
+somewhere else, or `ANCHORDB_VERSION` to pin a version.
+
+To do it by hand instead, take the archive for your platform from the
+[releases page](https://github.com/jolovicdev/anchor-db/releases), unpack it, and
+move the binaries onto your `PATH`. `checksums.txt` in each release covers every
+archive.
+
+### With Go
+
+Requires Go 1.25 or newer.
 
 ```bash
 go install github.com/jolovicdev/anchor-db/cmd/anchordb-mcp@latest
@@ -146,26 +176,38 @@ go install github.com/jolovicdev/anchor-db/cmd/anchorctl@latest
 go install github.com/jolovicdev/anchor-db/cmd/anchord@latest
 ```
 
-Only `anchordb-mcp` is needed to use AnchorDB from a coding agent. Add the others
-if you want the CLI or the web viewer.
-
 From a local checkout:
 
 ```bash
 go install ./cmd/anchordb-mcp ./cmd/anchorctl ./cmd/anchord
 ```
 
-Verify:
-
-```bash
-anchordb-mcp --version
-```
-
-If that is not found, the Go bin directory is not on your `PATH`:
+If the installed command is not found afterwards, the Go bin directory is not on
+your `PATH`:
 
 ```bash
 go env GOBIN          # if empty, binaries are in $(go env GOPATH)/bin
 export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+### With Docker
+
+```bash
+docker run --rm -i \
+  -v ~/.anchordb:/data \
+  -v /path/to/repo:/path/to/repo \
+  ghcr.io/jolovicdev/anchor-db:latest
+```
+
+Anchors record absolute repository paths, so mount each repository at the same
+path it has on the host — otherwise the paths stored in the database will not
+match anything the container can see. The container is only worth the trouble in
+CI or a sandbox; a binary on the host is simpler everywhere else.
+
+### Verify
+
+```bash
+anchordb-mcp --version
 ```
 
 ### Where to keep the database
@@ -716,6 +758,10 @@ anchordb-mcp --version
 The database schema migrates forward automatically on open. Anchors created by
 earlier versions keep working; those written before git-aware resolution simply
 fall back to text matching until they next resolve cleanly.
+
+Each tagged release builds its binaries on the platform they target, publishes a
+`checksums.txt` covering every archive, and pushes a matching multi-architecture
+image to `ghcr.io/jolovicdev/anchor-db`.
 
 ## License
 
