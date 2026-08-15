@@ -4,24 +4,77 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// schemaAcceptingStringLists infers the schema for an input type, then widens
-// every stringList in it to accept a string as well as an array.
+// nullableInt is an optional integer that also accepts the numeric strings
+// hosts send when they flatten arguments.
 //
-// Tolerating the string forms when decoding is not enough on its own: the SDK
-// validates arguments against the advertised schema first, so a flattened tags
+// This is the same hazard stringList covers, and it reaches every parameter
+// whose schema is a union with null: an omitted-or-index argument like
+// `candidate` is *int, which advertises ["null","integer"], and a host sending
+// "0" was rejected before the handler ran. Nothing about "0" is ambiguous.
+type nullableInt struct {
+	Value int
+	Set   bool
+}
+
+func (n *nullableInt) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*n = nullableInt{}
+		return nil
+	}
+
+	var number int
+	if err := json.Unmarshal(data, &number); err == nil {
+		*n = nullableInt{Value: number, Set: true}
+		return nil
+	}
+
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("expected an integer or a string holding one, got %s", firstRunes(string(data), 40))
+	}
+	if raw = strings.TrimSpace(raw); raw == "" {
+		*n = nullableInt{}
+		return nil
+	}
+	number, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("expected an integer, got %q", raw)
+	}
+	*n = nullableInt{Value: number, Set: true}
+	return nil
+}
+
+// Ptr converts back to the optional integer the service layer expects.
+func (n nullableInt) Ptr() *int {
+	if !n.Set {
+		return nil
+	}
+	value := n.Value
+	return &value
+}
+
+// toolSchema infers the schema for an input type, then widens the types that
+// accept more shapes than reflection can express.
+//
+// Tolerating those shapes when decoding is not enough on its own: the SDK
+// validates arguments against the advertised schema first, so a flattened
 // argument is rejected before UnmarshalJSON ever runs. The schema has to admit
 // what the decoder is prepared to accept.
-func schemaAcceptingStringLists[T any]() *jsonschema.Schema {
+func toolSchema[T any]() *jsonschema.Schema {
 	schema, err := jsonschema.For[T](&jsonschema.ForOptions{
 		TypeSchemas: map[reflect.Type]*jsonschema.Schema{
 			reflect.TypeFor[stringList](): {
 				Types: []string{"array", "string", "null"},
 				Items: &jsonschema.Schema{Type: "string"},
+			},
+			reflect.TypeFor[nullableInt](): {
+				Types: []string{"integer", "string", "null"},
 			},
 		},
 	})
@@ -31,6 +84,15 @@ func schemaAcceptingStringLists[T any]() *jsonschema.Schema {
 		panic(fmt.Sprintf("infer schema for %T: %v", *new(T), err))
 	}
 	return schema
+}
+
+// emptyIfNil keeps list-shaped fields encoding as [] rather than null, so a
+// client never has to null-check a field that is always a list.
+func emptyIfNil[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
 }
 
 // stringList is a []string that also accepts the shapes hosts actually send.

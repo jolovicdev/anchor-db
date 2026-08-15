@@ -55,8 +55,8 @@ func TestStringListRejectsValuesThatAreNotTags(t *testing.T) {
 // advertised schema has to admit the same shapes.
 func TestTagsSchemaAdmitsStringsAndArrays(t *testing.T) {
 	for name, schema := range map[string]any{
-		"anchor_create": schemaAcceptingStringLists[createAnchorInput](),
-		"anchor_update": schemaAcceptingStringLists[anchorUpdateInput](),
+		"anchor_create": toolSchema[createAnchorInput](),
+		"anchor_update": toolSchema[anchorUpdateInput](),
 	} {
 		t.Run(name, func(t *testing.T) {
 			encoded, err := json.Marshal(schema)

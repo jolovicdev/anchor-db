@@ -87,13 +87,13 @@ func New(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_create",
 		Description: "Create a new AnchorDB anchor attached to a file range.",
-		InputSchema: schemaAcceptingStringLists[createAnchorInput](),
+		InputSchema: toolSchema[createAnchorInput](),
 	}, api.anchorCreate)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_update",
 		Description: "Update anchor metadata such as kind, title, body, author, or tags.",
-		InputSchema: schemaAcceptingStringLists[anchorUpdateInput](),
+		InputSchema: toolSchema[anchorUpdateInput](),
 	}, api.anchorUpdate)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -154,6 +154,7 @@ func New(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_relocate",
 		Description: "Re-pin a stale anchor, either by accepting a ranked candidate index or by giving an explicit line range. Returns the anchor to active status.",
+		InputSchema: toolSchema[relocateInput](),
 	}, api.anchorRelocate)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -342,13 +343,13 @@ type candidatesOutput struct {
 
 type relocateInput struct {
 	AnchorID string `json:"anchor_id" jsonschema:"AnchorDB anchor ID."`
-	// A pointer so that omitting the field is distinguishable from asking for
+	// Optional so that omitting the field is distinguishable from asking for
 	// candidate 0, which an omitempty int cannot express.
-	Candidate *int `json:"candidate,omitempty" jsonschema:"Index of a ranked candidate from anchor_candidates. Omit to supply an explicit line range instead."`
-	StartLine int  `json:"start_line,omitempty" jsonschema:"1-based starting line, when not accepting a candidate."`
-	StartCol  int  `json:"start_col,omitempty" jsonschema:"1-based starting column."`
-	EndLine   int  `json:"end_line,omitempty" jsonschema:"1-based ending line."`
-	EndCol    int  `json:"end_col,omitempty" jsonschema:"1-based ending column."`
+	Candidate nullableInt `json:"candidate,omitempty" jsonschema:"Index of a ranked candidate from anchor_candidates. Omit to supply an explicit line range instead."`
+	StartLine int         `json:"start_line,omitempty" jsonschema:"1-based starting line, when not accepting a candidate."`
+	StartCol  int         `json:"start_col,omitempty" jsonschema:"1-based starting column."`
+	EndLine   int         `json:"end_line,omitempty" jsonschema:"1-based ending line."`
+	EndCol    int         `json:"end_col,omitempty" jsonschema:"1-based ending column, exclusive: it is one past the last column kept."`
 }
 
 type fileViewInput struct {
@@ -457,11 +458,15 @@ func (a *API) anchorSearch(ctx context.Context, _ *mcp.CallToolRequest, input se
 		Limit:      input.Limit,
 		Offset:     input.Offset,
 	}
-	if input.Status != "" {
-		filter.Status = domain.AnchorStatus(input.Status)
+	status, err := domain.ParseAnchorStatus(input.Status)
+	if err != nil {
+		return nil, searchOutput{}, err
 	}
+	filter.Status = status
 	anchors, err := a.service.ListAnchors(ctx, filter)
-	return nil, searchOutput{Anchors: anchors}, err
+	// An empty result is an empty list, not null: every client would otherwise
+	// need a null check on a field that is always a list.
+	return nil, searchOutput{Anchors: emptyIfNil(anchors)}, err
 }
 
 func (a *API) anchorTextSearch(ctx context.Context, _ *mcp.CallToolRequest, input textSearchInput) (*mcp.CallToolResult, textSearchOutput, error) {
@@ -473,11 +478,15 @@ func (a *API) anchorTextSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Limit:      input.Limit,
 		Offset:     input.Offset,
 	}
+	kind, err := domain.ParseAnchorKind(input.Kind)
+	if err != nil {
+		return nil, textSearchOutput{}, err
+	}
 	if input.Kind != "" {
-		query.Kind = domain.AnchorKind(input.Kind)
+		query.Kind = kind
 	}
 	hits, err := a.service.Search(ctx, query)
-	return nil, textSearchOutput{Hits: hits}, err
+	return nil, textSearchOutput{Hits: emptyIfNil(hits)}, err
 }
 
 func (a *API) anchorGet(ctx context.Context, _ *mcp.CallToolRequest, input anchorIDInput) (*mcp.CallToolResult, domain.Anchor, error) {
@@ -502,7 +511,7 @@ func (a *API) anchorStale(ctx context.Context, _ *mcp.CallToolRequest, input sta
 
 func (a *API) anchorCandidates(ctx context.Context, _ *mcp.CallToolRequest, input anchorIDInput) (*mcp.CallToolResult, candidatesOutput, error) {
 	candidates, err := a.service.RelocationCandidates(ctx, input.AnchorID)
-	return nil, candidatesOutput{Candidates: candidates}, err
+	return nil, candidatesOutput{Candidates: emptyIfNil(candidates)}, err
 }
 
 func (a *API) anchorRelocate(ctx context.Context, _ *mcp.CallToolRequest, input relocateInput) (*mcp.CallToolResult, domain.Anchor, error) {
@@ -513,7 +522,7 @@ func (a *API) anchorRelocate(ctx context.Context, _ *mcp.CallToolRequest, input 
 		EndLine:   input.EndLine,
 		EndCol:    input.EndCol,
 	}
-	request.Candidate = input.Candidate
+	request.Candidate = input.Candidate.Ptr()
 	anchor, err := a.service.AcceptRelocation(ctx, request)
 	return nil, anchor, err
 }
