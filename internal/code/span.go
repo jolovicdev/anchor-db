@@ -113,23 +113,33 @@ func offsetFor(content string, targetLine, targetCol int) (int, error) {
 	if targetLine < 1 || targetCol < 1 {
 		return 0, errors.New("line and column must be positive")
 	}
-	line := 1
-	col := 1
-	for idx, r := range content {
-		if line == targetLine && col == targetCol {
-			return idx, nil
+
+	// Walk to the start of the target line. A line that does not exist is a real
+	// mistake and still fails.
+	lineStart := 0
+	for current := 1; current < targetLine; current++ {
+		idx := strings.IndexByte(content[lineStart:], '\n')
+		if idx < 0 {
+			return 0, errors.New("position out of range")
 		}
-		if r == '\n' {
-			line++
-			col = 1
-		} else {
-			col++
-		}
+		lineStart += idx + 1
 	}
-	if line == targetLine && col == targetCol {
-		return len(content), nil
+	lineEnd := len(content)
+	if idx := strings.IndexByte(content[lineStart:], '\n'); idx >= 0 {
+		lineEnd = lineStart + idx
 	}
-	return 0, errors.New("position out of range")
+
+	// A column past the end of its line is clamped to the end of that line.
+	// "column 999" and "the end of this line" are the same request, and refusing
+	// it made callers responsible for knowing every line's exact width. It also
+	// broke relocation previews, which reuse an old span's columns at a new
+	// location where those columns often do not fit.
+	offset := lineStart
+	for col := 1; col < targetCol && offset < lineEnd; col++ {
+		_, size := utf8.DecodeRuneInString(content[offset:])
+		offset += size
+	}
+	return offset, nil
 }
 
 func MinInt(a, b int) int {

@@ -135,7 +135,12 @@ func (s *Service) candidatesFor(ctx context.Context, anchor domain.Anchor, limit
 			Confidence: candidate.Confidence,
 			Reason:     candidate.Reason,
 			SymbolPath: candidate.Binding.SymbolPath,
-			Preview:    truncateRunes(candidate.Binding.SelectedText, candidatePreviewLimit),
+			// Whole lines, not the span. A candidate's columns are inherited from
+			// the anchor's original position and rarely line up with the proposed
+			// location, so slicing by them cuts the preview off mid-token. The
+			// question a preview answers -- "is this the right place?" -- is best
+			// served by the lines as they read in the file.
+			Preview: truncateRunes(previewLines(string(content), candidate.Binding.StartLine, candidate.Binding.EndLine), candidatePreviewLimit),
 		})
 	}
 	return out, nil
@@ -242,4 +247,19 @@ func truncateRunes(value string, limit int) string {
 		return value
 	}
 	return string(runes[:limit]) + "..."
+}
+
+// previewLines returns a line range verbatim for display.
+func previewLines(content string, startLine, endLine int) string {
+	lines := strings.Split(content, "\n")
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	if startLine > endLine {
+		return ""
+	}
+	return strings.Join(lines[startLine-1:endLine], "\n")
 }

@@ -204,6 +204,17 @@ func listAnchors(ctx context.Context, ex executor, filter domain.AnchorFilter) (
 		conditions = append(conditions, `json_extract(binding_json, '$.symbol_path') = ?`)
 		args = append(args, filter.SymbolPath)
 	}
+	if filter.Kind != "" {
+		conditions = append(conditions, `kind = ?`)
+		args = append(args, filter.Kind)
+	}
+	// Every listed tag must be present, so each one contributes its own
+	// existence check against the stored JSON array.
+	for _, tag := range filter.Tags {
+		conditions = append(conditions,
+			`exists (select 1 from json_each(anchors.tags_json) where json_each.value = ?)`)
+		args = append(args, tag)
+	}
 	if len(conditions) > 0 {
 		query += ` where ` + strings.Join(conditions, ` and `)
 	}

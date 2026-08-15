@@ -262,13 +262,20 @@ func (s *Service) CreateAnchor(ctx context.Context, input CreateAnchorInput) (do
 	symbolPath := input.Symbol
 	if symbolPath == "" {
 		symbolPath = findSymbol(symbols, input.StartLine, input.EndLine)
-	} else if !hasSymbol(symbols, symbolPath) {
+	} else {
 		// An explicit symbol used to be taken on trust, so an anchor could claim a
 		// symbol from another file entirely. Symbol matching then relocated the
 		// anchor onto whatever that name resolved to later, which is worse than
 		// having no symbol at all.
-		return domain.Anchor{}, fmt.Errorf("symbol %q not found in %s%s",
-			symbolPath, input.Path, nearestSymbolHint(symbols))
+		resolved, err := resolveSymbol(symbols, symbolPath)
+		if err != nil {
+			return domain.Anchor{}, err
+		}
+		if resolved == "" {
+			return domain.Anchor{}, fmt.Errorf("symbol %q not found in %s%s",
+				symbolPath, input.Path, nearestSymbolHint(symbols))
+		}
+		symbolPath = resolved
 	}
 	bindingType := domain.BindingTypeSpan
 	if symbolPath != "" {
@@ -676,13 +683,49 @@ func (s *Service) listResolvableAnchors(ctx context.Context, repoID, path string
 	return append(active, stale...), nil
 }
 
-func hasSymbol(symbols []domain.Symbol, path string) bool {
+// resolveSymbol maps a caller-supplied symbol onto one the file actually
+// defines.
+//
+// Extractors emit leaf names ("_find"), but callers naturally reach for the
+// qualified form they see in their editor or import path -- "TodoService._find",
+// "todo.models.Task". Those name the same thing, so the trailing segment is
+// matched too. Ambiguity is reported rather than guessed at: two classes in one
+// file can both define "save", and picking one silently would anchor a note to
+// the wrong method.
+func resolveSymbol(symbols []domain.Symbol, requested string) (string, error) {
 	for _, symbol := range symbols {
-		if symbol.SymbolPath == path {
-			return true
+		if symbol.SymbolPath == requested {
+			return symbol.SymbolPath, nil
 		}
 	}
-	return false
+
+	leaf := symbolLeaf(requested)
+	var matches []string
+	for _, symbol := range symbols {
+		if symbolLeaf(symbol.SymbolPath) == leaf {
+			matches = append(matches, symbol.SymbolPath)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", nil
+	default:
+		return "", fmt.Errorf("symbol %q is ambiguous: matches %s",
+			requested, strings.Join(matches, ", "))
+	}
+}
+
+// symbolLeaf takes the last segment of a qualified name, treating "." and "::"
+// and "/" as separators so Python, Rust, and path-like forms all reduce.
+func symbolLeaf(path string) string {
+	path = strings.ReplaceAll(path, "::", ".")
+	path = strings.ReplaceAll(path, "/", ".")
+	if idx := strings.LastIndex(path, "."); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 // nearestSymbolHint lists what the file does define, so a rejected symbol comes

@@ -163,8 +163,11 @@ type AnchorFilter struct {
 	Path       string
 	SymbolPath string
 	Status     AnchorStatus
-	Limit      int
-	Offset     int
+	Kind       AnchorKind
+	// Tags matches anchors carrying every listed tag.
+	Tags   []string
+	Limit  int
+	Offset int
 }
 
 type AnchorEvent struct {

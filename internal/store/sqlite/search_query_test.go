@@ -85,9 +85,10 @@ func TestSearchStillFindsMatches(t *testing.T) {
 		"don't":       true, // punctuation inside a term still matches
 		"C++":         true,
 		"ret*":        true, // prefix search is preserved
-		"retry shim":  true, // multiple terms are ANDed
+		"retry shim":  true, // every term present
 		"nonexistent": false,
-		"retry zzzz":  false, // AND semantics: one missing term means no hit
+		"retry zzzz":  true,  // one absent term no longer blanks the result
+		"zzzz qqqq":   false, // but nothing matching still finds nothing
 	}
 	for query, wantHit := range cases {
 		hits, err := store.Search(ctx, domain.SearchQuery{Query: query, RepoID: repoID})
@@ -202,5 +203,54 @@ func TestSearchSnippetHandlesMultibyteText(t *testing.T) {
 	}
 	if strings.HasSuffix(hits[0].Snippet, "�...") {
 		t.Errorf("snippet truncation split a rune: %q", hits[0].Snippet)
+	}
+}
+
+// Requiring every term is the better answer whenever it finds something, so the
+// OR pass is a fallback rather than the default: a query whose terms all appear
+// must not be widened into matching documents that hold only one of them.
+func TestSearchPrefersDocumentsMatchingEveryTerm(t *testing.T) {
+	store, repoID := searchFixture(t)
+	ctx := context.Background()
+
+	all, err := store.Search(ctx, domain.SearchQuery{Query: "retry shim", RepoID: repoID})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(all) == 0 {
+		t.Fatal("expected a hit for a query whose terms all appear")
+	}
+
+	widened, err := store.Search(ctx, domain.SearchQuery{Query: "retry zzzz", RepoID: repoID})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(widened) == 0 {
+		t.Fatal("expected the fallback to find the document holding one term")
+	}
+	// The precise query must not have been widened to include everything the
+	// loose one reaches.
+	if len(all) > len(widened) {
+		t.Errorf("AND pass returned %d hits, more than the OR fallback's %d", len(all), len(widened))
+	}
+}
+
+// bm25 ranks best-first with negative numbers. Reporting that outward makes
+// every consumer learn the sign convention before it can sort or show a score.
+func TestSearchScoresAreNonNegative(t *testing.T) {
+	store, repoID := searchFixture(t)
+	ctx := context.Background()
+
+	hits, err := store.Search(ctx, domain.SearchQuery{Query: "retry", RepoID: repoID})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected at least one hit")
+	}
+	for _, hit := range hits {
+		if hit.Score < 0 {
+			t.Errorf("hit %s scored %f, want a non-negative relevance", hit.DocumentID, hit.Score)
+		}
 	}
 }

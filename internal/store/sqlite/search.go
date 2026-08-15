@@ -16,10 +16,25 @@ const snippetLimit = 160
 func (s *Store) Search(ctx context.Context, query domain.SearchQuery) ([]domain.SearchHit, error) {
 	// Callers type prose, not FTS5 expressions. Passing raw input to MATCH turns
 	// ordinary queries ("C++", "don't", "retry (v2)") into syntax errors.
-	match := ftsMatchExpression(query.Query)
-	if match == "" {
+	terms := ftsTerms(query.Query)
+	if len(terms) == 0 {
 		return nil, nil
 	}
+
+	// FTS5 joins bare terms with AND, so one word that happens not to appear --
+	// a synonym, a word from the question rather than the note -- returned
+	// nothing at all. Requiring every term is still the better answer when it
+	// finds something, so that is tried first and OR is the fallback rather than
+	// the default: it keeps precise queries precise without letting a single
+	// stray word blank the result.
+	hits, err := s.searchMatching(ctx, query, strings.Join(terms, " "))
+	if err != nil || len(hits) > 0 || len(terms) == 1 {
+		return hits, err
+	}
+	return s.searchMatching(ctx, query, strings.Join(terms, " OR "))
+}
+
+func (s *Store) searchMatching(ctx context.Context, query domain.SearchQuery, match string) ([]domain.SearchHit, error) {
 	stmt := `select doc_type, doc_id, anchor_id, comment_id, repo_id, path, symbol, kind, title, body, bm25(search_index) as score from search_index where search_index match ?`
 	args := make([]any, 0, 7)
 	args = append(args, match)
@@ -64,6 +79,10 @@ func (s *Store) Search(ctx context.Context, query domain.SearchQuery) ([]domain.
 		if err := rows.Scan(&hit.DocumentType, &hit.DocumentID, &hit.AnchorID, &hit.CommentID, &hit.RepoID, &hit.Path, &hit.SymbolPath, &kind, &hit.Title, &hit.Body, &hit.Score); err != nil {
 			return nil, err
 		}
+		// bm25 scores are negative, most relevant first. Reporting that outward
+		// means every consumer has to know the sign convention to display or sort
+		// it, so it is flipped to a plain "higher is better" relevance.
+		hit.Score = -hit.Score
 		if kind != "" {
 			hit.Kind = domain.AnchorKind(kind)
 		}
@@ -242,7 +261,7 @@ func reindexCommentsForAnchor(ctx context.Context, ex executor, anchor domain.An
 // worth keeping for an interactive search box. Terms carrying no letters or
 // digits tokenize to nothing and are dropped; an input made up entirely of such
 // terms yields "", which the caller treats as "no results".
-func ftsMatchExpression(input string) string {
+func ftsTerms(input string) []string {
 	terms := make([]string, 0, 8)
 	for _, field := range strings.Fields(input) {
 		prefix := strings.HasSuffix(field, "*")
@@ -258,7 +277,7 @@ func ftsMatchExpression(input string) string {
 		}
 		terms = append(terms, term)
 	}
-	return strings.Join(terms, " ")
+	return terms
 }
 
 func hasSearchableRune(value string) bool {

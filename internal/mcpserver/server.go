@@ -118,7 +118,8 @@ func New(service Service) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "anchor_search",
-		Description: "Search AnchorDB anchors by repo, path, symbol, status, and pagination.",
+		Description: "Search AnchorDB anchors by repo, path, symbol, status, kind, tags, and pagination.",
+		InputSchema: toolSchema[searchInput](),
 	}, api.anchorSearch)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -294,12 +295,14 @@ type commentInput struct {
 }
 
 type searchInput struct {
-	RepoID string `json:"repo_id,omitempty" jsonschema:"Optional repo ID."`
-	Path   string `json:"path,omitempty" jsonschema:"Optional repo-relative file path."`
-	Symbol string `json:"symbol,omitempty" jsonschema:"Optional symbol path."`
-	Status string `json:"status,omitempty" jsonschema:"Optional anchor status."`
-	Limit  int    `json:"limit,omitempty" jsonschema:"Optional page size."`
-	Offset int    `json:"offset,omitempty" jsonschema:"Optional offset."`
+	RepoID string     `json:"repo_id,omitempty" jsonschema:"Optional repo ID."`
+	Path   string     `json:"path,omitempty" jsonschema:"Optional repo-relative file path."`
+	Symbol string     `json:"symbol,omitempty" jsonschema:"Optional symbol path."`
+	Status string     `json:"status,omitempty" jsonschema:"Optional anchor status: active, stale, or archived."`
+	Kind   string     `json:"kind,omitempty" jsonschema:"Optional anchor kind: warning, todo, handoff, rationale, invariant, or question."`
+	Tags   stringList `json:"tags,omitempty" jsonschema:"Optional tags; an anchor must carry every listed tag to match."`
+	Limit  int        `json:"limit,omitempty" jsonschema:"Optional page size."`
+	Offset int        `json:"offset,omitempty" jsonschema:"Optional offset."`
 }
 
 type searchOutput struct {
@@ -463,6 +466,14 @@ func (a *API) anchorSearch(ctx context.Context, _ *mcp.CallToolRequest, input se
 		return nil, searchOutput{}, err
 	}
 	filter.Status = status
+	kind, err := domain.ParseAnchorKind(input.Kind)
+	if err != nil {
+		return nil, searchOutput{}, err
+	}
+	if input.Kind != "" {
+		filter.Kind = kind
+	}
+	filter.Tags = input.Tags
 	anchors, err := a.service.ListAnchors(ctx, filter)
 	// An empty result is an empty list, not null: every client would otherwise
 	// need a null check on a field that is always a list.

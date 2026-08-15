@@ -43,6 +43,7 @@ func (s *Service) Candidates(request Request, limit int) []Candidate {
 	found = append(found, symbolCandidates(request, binding)...)
 	found = append(found, textCandidates(request, binding)...)
 	found = append(found, similarityCandidates(request, binding)...)
+	found = append(found, contextCandidates(request, binding)...)
 
 	// Several strategies routinely land on the same lines; keep the strongest
 	// opinion for each distinct location.
@@ -85,12 +86,100 @@ func (s *Service) Candidates(request Request, limit int) []Candidate {
 	return kept
 }
 
-func overlapsAny(kept []Candidate, candidate Candidate) bool {
-	for _, existing := range kept {
-		if candidate.Binding.StartLine <= existing.Binding.EndLine &&
-			existing.Binding.StartLine <= candidate.Binding.EndLine {
-			return true
+// wholeLines returns a line range verbatim, used when a span's columns do not
+// describe anything meaningful at a proposed location.
+func wholeLines(content string, startLine, endLine int) string {
+	lines := strings.Split(content, "\n")
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	if startLine > endLine {
+		return ""
+	}
+	return strings.Join(lines[startLine-1:endLine], "\n")
+}
+
+// contextCandidates proposes the region between an anchor's recorded
+// surroundings.
+//
+// When a body is rewritten outright, no line of the original survives, so the
+// line-seeded scan has nothing to work from and the only suggestion left is the
+// enclosing symbol -- often dozens of lines, at a confidence that says little.
+// The code *around* the anchor usually does survive, and it brackets where the
+// anchor belongs even when everything between has changed.
+func contextCandidates(request Request, binding domain.Binding) []Candidate {
+	before := strings.TrimSpace(binding.BeforeContext)
+	after := strings.TrimSpace(binding.AfterContext)
+	if before == "" && after == "" {
+		return nil
+	}
+
+	lines := strings.Split(request.Content, "\n")
+	find := func(needle string) int {
+		if needle == "" {
+			return -1
 		}
+		for idx, line := range lines {
+			if strings.TrimSpace(line) == needle {
+				return idx + 1
+			}
+		}
+		return -1
+	}
+
+	beforeLine, afterLine := find(before), find(after)
+	switch {
+	case beforeLine > 0 && afterLine > beforeLine+1:
+		// Both anchors of the window survived and still bracket a region.
+		return []Candidate{buildCandidate(request.Content, binding,
+			beforeLine+1, afterLine-1, 0.55, "between the surrounding lines")}
+	case beforeLine > 0:
+		// Only the leading context survived; offer a span of the original height
+		// starting after it.
+		height := strings.Count(binding.SelectedText, "\n")
+		end := beforeLine + 1 + height
+		if end > len(lines) {
+			end = len(lines)
+		}
+		return []Candidate{buildCandidate(request.Content, binding,
+			beforeLine+1, end, 0.45, "after the preceding line")}
+	case afterLine > 1:
+		height := strings.Count(binding.SelectedText, "\n")
+		start := afterLine - 1 - height
+		if start < 1 {
+			start = 1
+		}
+		return []Candidate{buildCandidate(request.Content, binding,
+			start, afterLine-1, 0.45, "before the following line")}
+	}
+	return nil
+}
+
+// overlapsAny reports whether a candidate is already covered by one that was
+// kept.
+//
+// Suppressing every overlap is right for the sliding-window scan, which
+// proposes the same region at several offsets. It is wrong when a broad
+// suggestion -- an enclosing symbol spanning dozens of lines -- swallows a
+// narrow one pointing at the handful of lines that actually changed. The
+// narrow candidate is the more useful answer, so a substantially tighter span
+// survives the overlap.
+func overlapsAny(kept []Candidate, candidate Candidate) bool {
+	height := func(c Candidate) int { return c.Binding.EndLine - c.Binding.StartLine + 1 }
+	for _, existing := range kept {
+		if candidate.Binding.StartLine > existing.Binding.EndLine ||
+			existing.Binding.StartLine > candidate.Binding.EndLine {
+			continue
+		}
+		// Half the height or less is a meaningfully different proposal rather
+		// than the same region rediscovered at another offset.
+		if height(candidate)*2 <= height(existing) {
+			continue
+		}
+		return true
 	}
 	return false
 }
@@ -219,10 +308,16 @@ func buildCandidate(content string, binding domain.Binding, startLine, endLine i
 	moved.BeforeHash = code.HashText(before)
 	moved.AfterContext = after
 	moved.AfterHash = code.HashText(after)
-	if found, err := code.Slice(content, startLine, moved.StartCol, endLine, moved.EndCol); err == nil {
-		moved.SelectedText = found
-		moved.SelectedTextHash = code.HashText(found)
+	// A preview must describe what is at the proposed location now. Keeping the
+	// anchor's own text when the slice failed showed the reviewer the code they
+	// were trying to move away from, which is precisely backwards when the
+	// question is "does this candidate look right?".
+	found, err := code.Slice(content, startLine, moved.StartCol, endLine, moved.EndCol)
+	if err != nil || strings.TrimSpace(found) == "" {
+		found = wholeLines(content, startLine, endLine)
 	}
+	moved.SelectedText = found
+	moved.SelectedTextHash = code.HashText(found)
 	if confidence > 1 {
 		confidence = 1
 	}
