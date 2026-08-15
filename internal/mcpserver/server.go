@@ -414,7 +414,7 @@ func (a *API) anchorCreate(ctx context.Context, _ *mcp.CallToolRequest, input cr
 		Title:     input.Title,
 		Body:      input.Body,
 		Author:    input.Author,
-		Tags:      input.Tags,
+		Tags:      input.Tags.Values,
 		Symbol:    input.Symbol,
 	})
 	return nil, anchor, err
@@ -422,13 +422,15 @@ func (a *API) anchorCreate(ctx context.Context, _ *mcp.CallToolRequest, input cr
 
 func (a *API) anchorUpdate(ctx context.Context, _ *mcp.CallToolRequest, input anchorUpdateInput) (*mcp.CallToolResult, domain.Anchor, error) {
 	anchor, err := a.service.UpdateAnchor(ctx, app.UpdateAnchorInput{
-		ID:          input.AnchorID,
-		Kind:        input.Kind,
-		Title:       input.Title,
-		Body:        input.Body,
-		Author:      input.Author,
-		Tags:        input.Tags,
-		ReplaceTags: input.Tags != nil,
+		ID:     input.AnchorID,
+		Kind:   input.Kind,
+		Title:  input.Title,
+		Body:   input.Body,
+		Author: input.Author,
+		Tags:   input.Tags.Values,
+		// Supplying the field at all is the request to replace; an empty list
+		// is how tags get cleared.
+		ReplaceTags: input.Tags.Set,
 	})
 	return nil, anchor, err
 }
@@ -473,7 +475,7 @@ func (a *API) anchorSearch(ctx context.Context, _ *mcp.CallToolRequest, input se
 	if input.Kind != "" {
 		filter.Kind = kind
 	}
-	filter.Tags = input.Tags
+	filter.Tags = input.Tags.Values
 	anchors, err := a.service.ListAnchors(ctx, filter)
 	// An empty result is an empty list, not null: every client would otherwise
 	// need a null check on a field that is always a list.
@@ -596,9 +598,11 @@ func (a *API) readAnchors(ctx context.Context, request *mcp.ReadResourceRequest)
 		Path:       parsed.Query().Get("path"),
 		SymbolPath: parsed.Query().Get("symbol"),
 	}
-	if status := parsed.Query().Get("status"); status != "" {
-		filter.Status = domain.AnchorStatus(status)
+	status, err := domain.ParseAnchorStatus(parsed.Query().Get("status"))
+	if err != nil {
+		return nil, err
 	}
+	filter.Status = status
 	filter.Limit = atoi(parsed.Query().Get("limit"))
 	filter.Offset = atoi(parsed.Query().Get("offset"))
 	anchors, err := a.service.ListAnchors(ctx, filter)

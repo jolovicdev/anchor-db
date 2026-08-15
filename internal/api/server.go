@@ -61,7 +61,9 @@ var templateFuncs = template.FuncMap{
 	"mul": func(value float64, factor int) float64 { return value * float64(factor) },
 }
 
-func NewServer(service *app.Service) http.Handler {
+// NewServer builds the HTTP handler. listenAddr is the address the server was
+// asked to bind, used to decide which Host headers are legitimate.
+func NewServer(service *app.Service, listenAddr string) http.Handler {
 	tmpl := template.Must(template.New("anchordb").Funcs(templateFuncs).ParseFS(templateFS, "templates/*.html"))
 	server := &Server{
 		service: service,
@@ -69,7 +71,7 @@ func NewServer(service *app.Service) http.Handler {
 		tmpl:    tmpl,
 	}
 	server.routes()
-	return server.withLogging(server.mux)
+	return newGuard(server.withLogging(server.mux), listenAddr)
 }
 
 func (s *Server) routes() {
@@ -232,9 +234,12 @@ func (s *Server) handleAnchors(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.Limit = limit
 		filter.Offset = offset
-		if status := r.URL.Query().Get("status"); status != "" {
-			filter.Status = domain.AnchorStatus(status)
+		status, err := domain.ParseAnchorStatus(r.URL.Query().Get("status"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
+		filter.Status = status
 		anchors, err := s.service.ListAnchors(r.Context(), filter)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

@@ -50,7 +50,7 @@ func main() {
 	log.Printf("anchord listening on %s", *listen)
 	server := &http.Server{
 		Addr:    *listen,
-		Handler: api.NewServer(service),
+		Handler: api.NewServer(service, *listen),
 		// Without these a stalled or slow client holds a connection open
 		// indefinitely. WriteTimeout is the most generous of the three because
 		// a sync triggered over HTTP has to shell out to git.

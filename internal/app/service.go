@@ -410,7 +410,13 @@ func (s *Service) ResolveAnchor(ctx context.Context, id string) (domain.Anchor, 
 	if anchor.Status != domain.AnchorStatusActive && anchor.Status != domain.AnchorStatusStale {
 		return domain.Anchor{}, errors.New("only active or stale anchors can be resolved")
 	}
-	updated, err := s.ResolvePath(ctx, anchor.RepoID, anchor.Binding.Ref, anchor.Binding.Path)
+	// The working tree, for the same reason resolveRepoPaths uses it: resolving
+	// an anchor in the snapshot it was created from compares that snapshot with
+	// itself, so it always matches and can never go stale, while its BaseCommit
+	// is rebased onto current HEAD and its recorded provenance stops being true.
+	// Anchors written now record WORKTREE, but older ones can still carry a
+	// pinned commit, and this path would honour it.
+	updated, err := s.ResolvePath(ctx, anchor.RepoID, repos.RefWorktree, anchor.Binding.Path)
 	if err != nil {
 		return domain.Anchor{}, err
 	}

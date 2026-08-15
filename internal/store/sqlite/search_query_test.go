@@ -254,3 +254,33 @@ func TestSearchScoresAreNonNegative(t *testing.T) {
 		}
 	}
 }
+
+// The OR fallback exists so a stray word cannot blank a result. Past the first
+// page an empty AND result means "no more of these", not "no matches", so
+// widening there would answer page two from a different and larger result set
+// and pages would repeat or skip hits.
+func TestSearchDoesNotWidenPastTheFirstPage(t *testing.T) {
+	store, repoID := searchFixture(t)
+	ctx := context.Background()
+
+	// A query whose terms cannot all appear together: the AND pass is empty on
+	// every page, so only page one may fall back.
+	query := domain.SearchQuery{Query: "retry zzzz", RepoID: repoID}
+
+	first, err := store.Search(ctx, query)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(first) == 0 {
+		t.Fatal("expected the first page to widen and find something")
+	}
+
+	query.Offset = len(first) + 10
+	past, err := store.Search(ctx, query)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(past) != 0 {
+		t.Errorf("page past the end returned %d hits from a widened query", len(past))
+	}
+}

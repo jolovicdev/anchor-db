@@ -31,6 +31,13 @@ func (s *Store) Search(ctx context.Context, query domain.SearchQuery) ([]domain.
 	if err != nil || len(hits) > 0 || len(terms) == 1 {
 		return hits, err
 	}
+	// Only the first page may widen. Past the first page an empty result means
+	// "no more of these", not "no matches" -- falling back there would answer
+	// page two from a different and larger result set, so pages would repeat or
+	// skip hits.
+	if query.Offset > 0 {
+		return hits, nil
+	}
 	return s.searchMatching(ctx, query, strings.Join(terms, " OR "))
 }
 

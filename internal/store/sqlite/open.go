@@ -7,29 +7,23 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// pragmas are connection-scoped, so they belong in the DSN rather than in
+// statements run once after opening. database/sql may discard a connection
+// after a driver error and open a replacement transparently; a replacement
+// configured by Exec would come back with foreign keys and the busy timeout
+// silently off.
+const pragmaDSN = "?_pragma=journal_mode(wal)" +
+	"&_pragma=synchronous(normal)" +
+	"&_pragma=foreign_keys(on)" +
+	"&_pragma=busy_timeout(5000)"
+
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", "file:"+path+pragmaDSN)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err := db.Exec(`pragma journal_mode = wal`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`pragma synchronous = normal`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`pragma foreign_keys = on`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`pragma busy_timeout = 5000`); err != nil {
-		db.Close()
-		return nil, err
-	}
 	store := &Store{db: db}
 	if err := store.migrate(); err != nil {
 		db.Close()

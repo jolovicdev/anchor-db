@@ -111,5 +111,9 @@ func normalizeReceiver(value string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return fields[len(fields)-1]
+	// A pointer receiver is written "(s *Service)". Keeping the star put it in
+	// the stored symbol path, so an exact filter or search for "Service.Resolve"
+	// missed "*Service.Resolve", and the star leaked into anything that displayed
+	// it. Pointerness is a property of the receiver, not part of the type's name.
+	return strings.TrimPrefix(fields[len(fields)-1], "*")
 }

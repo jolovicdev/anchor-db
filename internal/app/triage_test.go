@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,4 +203,62 @@ func TestAcceptRelocationRejectsBadInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The queue promises "most recently affected first", and a limit must keep that
+// end. Truncating an oldest-first list drops exactly the anchors that broke
+// most recently, which are the ones a reviewer came for.
+func TestStaleQueueReturnsMostRecentlyAffectedFirst(t *testing.T) {
+	ctx := context.Background()
+	root := gitRepoWithFile(t, "a.py", "def one():\n    return 1\n\n\ndef two():\n    return 2\n")
+	svc, repo := serviceFor(t, root)
+
+	var ids []string
+	for i, span := range [][2]int{{1, 2}, {5, 6}} {
+		anchor, err := svc.CreateAnchor(ctx, app.CreateAnchorInput{
+			RepoID: repo.ID, Ref: "WORKTREE", Path: "a.py",
+			StartLine: span[0], StartCol: 1, EndLine: span[1], EndCol: 99,
+			Kind: "todo", Title: fmt.Sprintf("a%d", i), Body: "b", Author: "x",
+		})
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		ids = append(ids, anchor.ID)
+	}
+
+	// Break both, oldest-created first, so creation order and break order agree.
+	if err := os.WriteFile(filepath.Join(root, "a.py"),
+		[]byte("def alpha(x):\n    return x * 2\n\n\ndef beta(y):\n    return y * 3\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := svc.SyncRepo(ctx, repo.ID); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	entries, err := svc.StaleQueue(ctx, repo.ID, 0)
+	if err != nil {
+		t.Fatalf("stale queue: %v", err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("expected both anchors stale, got %d", len(entries))
+	}
+	for i := 1; i < len(entries); i++ {
+		if entries[i].Anchor.UpdatedAt.After(entries[i-1].Anchor.UpdatedAt) {
+			t.Errorf("entry %d is newer than entry %d: queue is not most-recent-first", i, i-1)
+		}
+	}
+
+	// A limit must keep the head of that order, not the tail.
+	limited, err := svc.StaleQueue(ctx, repo.ID, 1)
+	if err != nil {
+		t.Fatalf("stale queue: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("limit 1 returned %d entries", len(limited))
+	}
+	if limited[0].Anchor.ID != entries[0].Anchor.ID {
+		t.Errorf("limit kept %s, want the most recently affected %s",
+			limited[0].Anchor.ID, entries[0].Anchor.ID)
+	}
+	_ = ids
 }

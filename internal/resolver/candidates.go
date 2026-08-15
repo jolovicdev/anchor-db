@@ -63,11 +63,21 @@ func (s *Service) Candidates(request Request, limit int) []Candidate {
 	for _, candidate := range best {
 		ranked = append(ranked, candidate)
 	}
+	// A total order, not just a good one: callers accept a candidate by index
+	// and the list is recomputed before it is applied, so two candidates tying
+	// on confidence and start line could swap between the preview and the
+	// accept, pinning a span the reviewer never saw.
 	sort.Slice(ranked, func(i, j int) bool {
 		if ranked[i].Confidence != ranked[j].Confidence {
 			return ranked[i].Confidence > ranked[j].Confidence
 		}
-		return ranked[i].Binding.StartLine < ranked[j].Binding.StartLine
+		if ranked[i].Binding.StartLine != ranked[j].Binding.StartLine {
+			return ranked[i].Binding.StartLine < ranked[j].Binding.StartLine
+		}
+		if ranked[i].Binding.EndLine != ranked[j].Binding.EndLine {
+			return ranked[i].Binding.EndLine < ranked[j].Binding.EndLine
+		}
+		return ranked[i].Reason < ranked[j].Reason
 	})
 
 	// The sliding-window scan naturally proposes the same region at several

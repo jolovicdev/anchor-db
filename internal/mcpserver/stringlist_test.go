@@ -33,8 +33,8 @@ func TestStringListAcceptsTheShapesHostsSend(t *testing.T) {
 			if err := json.Unmarshal([]byte(tc.json), &got); err != nil {
 				t.Fatalf("unmarshal %s: %v", tc.json, err)
 			}
-			if !reflect.DeepEqual([]string(got), tc.want) {
-				t.Errorf("unmarshal %s = %#v, want %#v", tc.json, []string(got), tc.want)
+			if !reflect.DeepEqual(got.Values, tc.want) {
+				t.Errorf("unmarshal %s = %#v, want %#v", tc.json, got.Values, tc.want)
 			}
 		})
 	}
@@ -46,7 +46,7 @@ func TestStringListRejectsValuesThatAreNotTags(t *testing.T) {
 	for _, input := range []string{`42`, `true`, `{"a":1}`, `[1,2]`} {
 		var got stringList
 		if err := json.Unmarshal([]byte(input), &got); err == nil {
-			t.Errorf("unmarshal %s was accepted as %#v", input, []string(got))
+			t.Errorf("unmarshal %s was accepted as %#v", input, got.Values)
 		}
 	}
 }

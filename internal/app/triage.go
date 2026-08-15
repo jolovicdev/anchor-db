@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jolovicdev/anchor-db/internal/code"
@@ -58,6 +59,13 @@ func (s *Service) StaleQueue(ctx context.Context, repoID string, limit int) ([]S
 	if err != nil {
 		return nil, err
 	}
+	// ListAnchors returns oldest-created first. The queue promises the opposite,
+	// and it matters more than presentation: truncating an ascending list to a
+	// limit drops exactly the anchors that broke most recently, which are the
+	// ones a reviewer is looking for.
+	sort.SliceStable(anchors, func(i, j int) bool {
+		return anchors[i].UpdatedAt.After(anchors[j].UpdatedAt)
+	})
 	if limit > 0 && len(anchors) > limit {
 		anchors = anchors[:limit]
 	}

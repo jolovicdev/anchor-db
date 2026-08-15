@@ -29,7 +29,7 @@ func TestServerCreatesRepoAndAnchorsAndReturnsContext(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	server := httptest.NewServer(api.NewServer(svc))
+	server := httptest.NewServer(api.NewServer(svc, "127.0.0.1:7740"))
 	defer server.Close()
 
 	repoPayload := map[string]string{
@@ -106,7 +106,7 @@ func TestServerValidatesBadRequestsAndServesHealth(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	server := httptest.NewServer(api.NewServer(svc))
+	server := httptest.NewServer(api.NewServer(svc, "127.0.0.1:7740"))
 	defer server.Close()
 
 	healthResp, err := http.Get(server.URL + "/health")
@@ -188,7 +188,7 @@ func TestServerRepoAndAnchorLifecycle(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	server := httptest.NewServer(api.NewServer(svc))
+	server := httptest.NewServer(api.NewServer(svc, "127.0.0.1:7740"))
 	defer server.Close()
 
 	repoPayload := map[string]string{"name": "demo", "path": repoRoot}

@@ -103,7 +103,13 @@ func emptyIfNil[T any](items []T) []T {
 // The caller's intent is not ambiguous in that case, and rejecting it only
 // makes the tool unusable from those hosts, so the string forms are accepted
 // and normalized here.
-type stringList []string
+type stringList struct {
+	Values []string
+	// Set records that the caller supplied the field at all, which is what
+	// separates "leave the tags alone" from "remove every tag". Collapsing an
+	// empty list to nil lost that distinction, so tags could never be cleared.
+	Set bool
+}
 
 // UnmarshalJSON accepts a JSON array of strings, a JSON array delivered as a
 // string, or a plain comma-separated string.
@@ -111,7 +117,7 @@ func (l *stringList) UnmarshalJSON(data []byte) error {
 	// The correct shape first, so nothing changes for hosts that send it.
 	var items []string
 	if err := json.Unmarshal(data, &items); err == nil {
-		*l = cleanStrings(items)
+		*l = stringList{Values: cleanStrings(items), Set: true}
 		return nil
 	}
 
@@ -123,7 +129,7 @@ func (l *stringList) UnmarshalJSON(data []byte) error {
 
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		*l = nil
+		*l = stringList{Set: true}
 		return nil
 	}
 
@@ -131,12 +137,12 @@ func (l *stringList) UnmarshalJSON(data []byte) error {
 	if strings.HasPrefix(raw, "[") {
 		var nested []string
 		if err := json.Unmarshal([]byte(raw), &nested); err == nil {
-			*l = cleanStrings(nested)
+			*l = stringList{Values: cleanStrings(nested), Set: true}
 			return nil
 		}
 	}
 
-	*l = cleanStrings(strings.Split(raw, ","))
+	*l = stringList{Values: cleanStrings(strings.Split(raw, ",")), Set: true}
 	return nil
 }
 
@@ -162,4 +168,13 @@ func firstRunes(value string, limit int) string {
 		return value
 	}
 	return string(runes[:limit]) + "..."
+}
+
+// MarshalJSON keeps the wire shape a plain array, so the wrapper is invisible
+// to anything reading these structures back.
+func (l stringList) MarshalJSON() ([]byte, error) {
+	if l.Values == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(l.Values)
 }

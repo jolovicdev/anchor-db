@@ -30,7 +30,7 @@ func TestServerRendersFileViewAndComments(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	server := httptest.NewServer(api.NewServer(svc))
+	server := httptest.NewServer(api.NewServer(svc, "127.0.0.1:7740"))
 	defer server.Close()
 
 	repoID := createRepo(t, server.URL, repoRoot)

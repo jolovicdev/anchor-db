@@ -30,7 +30,7 @@ func newTestServer(t *testing.T) (*httptest.Server, string, string) {
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	server := httptest.NewServer(api.NewServer(svc))
+	server := httptest.NewServer(api.NewServer(svc, "127.0.0.1:7740"))
 	t.Cleanup(server.Close)
 
 	body, _ := json.Marshal(map[string]string{"name": "demo", "path": repoRoot})
