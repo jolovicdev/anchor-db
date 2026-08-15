@@ -2,6 +2,7 @@ package repos_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,10 @@ func TestServiceReadsWorkingTreeAndHead(t *testing.T) {
 	}
 }
 
+// A git failure should report what git said and nothing about how it was run.
+// The argv, the exit status, and a "stderr:" label made an ordinary mistake --
+// a bad ref, a directory that is not a repository -- read like an internal
+// fault, and told the caller nothing they could act on.
 func TestServiceReturnsStructuredGitErrors(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -55,8 +60,39 @@ func TestServiceReturnsStructuredGitErrors(t *testing.T) {
 		t.Fatalf("expected git error")
 	}
 	message := err.Error()
-	if !strings.Contains(message, "stderr:") {
-		t.Fatalf("expected stderr label in error, got %q", message)
+
+	if !strings.Contains(message, "not a git repository") {
+		t.Errorf("error should carry git's own explanation, got %q", message)
+	}
+	if !strings.Contains(message, "rev-parse") {
+		t.Errorf("error should name the git subcommand, got %q", message)
+	}
+	for _, leak := range []string{"stderr:", "stdout:", "exit status", "["} {
+		if strings.Contains(message, leak) {
+			t.Errorf("error leaks %q: %q", leak, message)
+		}
+	}
+}
+
+func TestReadFileReportsMissingFilesPlainly(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	runGit(t, root, "init")
+
+	svc := repos.NewService()
+	_, err := svc.ReadFile(ctx, root, repos.RefWorktree, "ghost.py")
+	if err == nil {
+		t.Fatal("expected an error for a missing file")
+	}
+	if !errors.Is(err, repos.ErrFileNotFound) {
+		t.Errorf("error should be ErrFileNotFound, got %v", err)
+	}
+	// "openat" names the syscall the read happens to use.
+	if strings.Contains(err.Error(), "openat") {
+		t.Errorf("error leaks the syscall: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ghost.py") {
+		t.Errorf("error should name the file, got %q", err.Error())
 	}
 }
 

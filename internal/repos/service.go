@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -22,6 +23,7 @@ var (
 	// HTTP, MCP, and CLI callers, none of which are trusted to stay in the repo.
 	ErrPathOutsideRepo = errors.New("path escapes repository root")
 	ErrInvalidRef      = errors.New("invalid git ref")
+	ErrFileNotFound    = errors.New("file not found")
 )
 
 type Service struct{}
@@ -96,7 +98,15 @@ func (s *Service) ReadFile(ctx context.Context, root, ref, filePath string) ([]b
 		defer dir.Close()
 		file, err := dir.Open(rel)
 		if err != nil {
-			return nil, err
+			// The raw syscall error names the operation ("openat") and leaks how
+			// the read is implemented, which tells a caller nothing they can act on.
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%w: %s", ErrFileNotFound, rel)
+			}
+			if errors.Is(err, fs.ErrPermission) {
+				return nil, fmt.Errorf("cannot read %s: permission denied", rel)
+			}
+			return nil, fmt.Errorf("cannot read %s", rel)
 		}
 		defer file.Close()
 		return io.ReadAll(file)
@@ -217,14 +227,15 @@ func (s *Service) git(ctx context.Context, root string, args ...string) (string,
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		message := fmt.Sprintf("git %v: %v", args, err)
+		// git's own message is the part a caller can act on. The argv and the
+		// exit status describe how the work happened to be done, and reporting
+		// them made ordinary mistakes look like internal failures.
 		if text := strings.TrimSpace(stderr.String()); text != "" {
-			message += ": stderr: " + text
+			text, _, _ = strings.Cut(text, "\n")
+			text = strings.TrimSuffix(strings.TrimPrefix(text, "fatal: "), ".")
+			return "", fmt.Errorf("git %s: %s", args[0], text)
 		}
-		if text := strings.TrimSpace(stdout.String()); text != "" {
-			message += ": stdout: " + text
-		}
-		return "", fmt.Errorf("%s", message)
+		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return stdout.String(), nil
 }
