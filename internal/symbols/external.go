@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -26,8 +25,11 @@ func extractExternal(ctx context.Context, dir, language, path string, content []
 	if language == "" || strings.ContainsAny(language, `/\`) || strings.Contains(language, "..") {
 		return []domain.Symbol{}, nil
 	}
-	commandPath := filepath.Join(dir, "symbols-"+language)
-	if _, err := os.Stat(commandPath); err != nil {
+	// LookPath rather than Stat: it checks that the file is actually executable
+	// instead of merely present, and on Windows it resolves the extension, where
+	// a bare "symbols-text" could never be run.
+	commandPath, err := exec.LookPath(filepath.Join(dir, "symbols-"+language))
+	if err != nil {
 		return []domain.Symbol{}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, externalTimeout)

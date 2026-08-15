@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jolovicdev/anchor-db/internal/symbols"
@@ -61,13 +62,27 @@ func TestServiceExtractsPythonAndJavaScriptSymbols(t *testing.T) {
 	}
 }
 
-func TestServiceLoadsRuntimeExtractorExecutable(t *testing.T) {
-	dir := t.TempDir()
-	extractorPath := filepath.Join(dir, "symbols-text")
-	script := "#!/usr/bin/env bash\ncat <<'EOF'\n[{\"path\":\"notes.txt\",\"language\":\"text\",\"kind\":\"section\",\"symbol_path\":\"Intro\",\"start_line\":1,\"start_col\":1,\"end_line\":1,\"end_col\":6}]\nEOF\n"
-	if err := os.WriteFile(extractorPath, []byte(script), 0o755); err != nil {
+const runtimeExtractorJSON = `[{"path":"notes.txt","language":"text","kind":"section","symbol_path":"Intro","start_line":1,"start_col":1,"end_line":1,"end_col":6}]`
+
+// writeRuntimeExtractor writes a plugin that prints a fixed result. Windows will
+// not run an extensionless file whatever its mode bits, so there it gets the
+// extension and the interpreter that platform actually has.
+func writeRuntimeExtractor(t *testing.T, dir string) {
+	t.Helper()
+
+	name, script := "symbols-text", "#!/bin/sh\ncat <<'EOF'\n"+runtimeExtractorJSON+"\nEOF\n"
+	if runtime.GOOS == "windows" {
+		name, script = "symbols-text.cmd", "@echo off\r\necho "+runtimeExtractorJSON+"\r\n"
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatalf("write extractor: %v", err)
 	}
+}
+
+func TestServiceLoadsRuntimeExtractorExecutable(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeExtractor(t, dir)
 
 	svc := symbols.NewService(symbols.WithExternalDir(dir))
 	items, err := svc.Extract(context.Background(), "text", "notes.txt", []byte("Intro\n"))
@@ -79,5 +94,29 @@ func TestServiceLoadsRuntimeExtractorExecutable(t *testing.T) {
 	}
 	if items[0].SymbolPath != "Intro" {
 		t.Fatalf("expected Intro symbol, got %s", items[0].SymbolPath)
+	}
+}
+
+// A plugin file that is present but cannot be run is the same situation as no
+// plugin at all. Failing the whole extraction over it would take a repository's
+// symbol resolution down for a stray file with the wrong mode bits.
+func TestServiceIgnoresRuntimeExtractorThatIsNotExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the executable bit has no equivalent on Windows")
+	}
+
+	dir := t.TempDir()
+	extractorPath := filepath.Join(dir, "symbols-text")
+	if err := os.WriteFile(extractorPath, []byte("#!/bin/sh\necho []\n"), 0o644); err != nil {
+		t.Fatalf("write extractor: %v", err)
+	}
+
+	svc := symbols.NewService(symbols.WithExternalDir(dir))
+	items, err := svc.Extract(context.Background(), "text", "notes.txt", []byte("Intro\n"))
+	if err != nil {
+		t.Fatalf("extract with a non-executable plugin should not fail: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no symbols, got %d", len(items))
 	}
 }
