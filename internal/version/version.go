@@ -8,7 +8,7 @@ const Name = "anchordb"
 
 // Version is the released version. It is the fallback for builds that carry no
 // module information, such as `go build` from a working tree.
-var Version = "1.0.0"
+var Version = "1.0.1"
 
 // String reports the running version.
 //
