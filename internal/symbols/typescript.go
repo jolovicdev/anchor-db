@@ -1,0 +1,42 @@
+package symbols
+
+import (
+	"context"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+
+	"github.com/jolovicdev/anchor-db/internal/code"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+)
+
+type typeScriptExtractor struct {
+	language *sitter.Language
+}
+
+func newTypeScriptExtractor() *typeScriptExtractor {
+	return &typeScriptExtractor{
+		language: sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript()),
+	}
+}
+
+func (t *typeScriptExtractor) Extract(ctx context.Context, path string, content []byte) ([]domain.Symbol, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(t.language); err != nil {
+		return nil, err
+	}
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+	root := tree.RootNode()
+	cursor := root.Walk()
+	defer cursor.Close()
+
+	return walkNamed(code.NewPositionIndex(string(content)), path, "typescript", content, root, cursor, map[string]string{
+		"function_declaration": "function",
+		"class_declaration":    "class",
+	}), nil
+}

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Path}} — {{.Repo.Name}}</title>
+  {{template "theme-init"}}
+  {{template "styles"}}
+</head>
+<body>
+  <header class="bar">
+    <a class="wordmark" href="/">anchordb</a>
+    <span class="trail">{{.Repo.Name}} / <b>{{.Path}}</b> @ {{.Ref}}</span>
+    <span class="grow"></span>
+    {{$stale := 0}}{{range .Anchors}}{{if eq (printf "%s" .Status) "stale"}}{{$stale = add $stale 1}}{{end}}{{end}}
+    <span class="count">{{len .Anchors}} anchored</span>
+    {{if gt $stale 0}}<span class="count attention">{{$stale}} stale</span>{{end}}
+    {{template "theme-toggle"}}
+  </header>
+
+  <div class="split">
+    <nav class="col" aria-label="Files">
+      <div class="col-title">
+        <label for="find">Files</label>
+        <input class="find" id="find" type="search" placeholder="filter" autocomplete="off">
+      </div>
+      <div class="tree" id="tree">
+        {{range .Files}}
+        <a class="leaf" data-path="{{.}}" {{if eq . $.Path}}aria-current="page"{{end}}
+           href="/view?repo_id={{$.Repo.ID}}&ref={{$.Ref}}&path={{.}}">{{.}}</a>
+        {{end}}
+      </div>
+    </nav>
+
+    <main class="col">
+      <div class="listing">
+        {{range .Lines}}
+        <div class="ln{{if .Highlighted}} hit{{end}}{{if .Stale}} lost{{end}}" id="L{{.Number}}">
+          <span class="num">{{.Number}}</span>
+          <span class="txt">{{if eq .Text ""}} {{else}}{{.Text}}{{end}}</span>
+        </div>
+        {{end}}
+      </div>
+    </main>
+
+    <aside class="col" aria-label="Anchors">
+      <div class="col-title">Anchors</div>
+      {{range .Anchors}}
+      {{$anchorID := .ID}}
+      <article class="note" id="anchor-{{.ID}}">
+        <div class="note-top">
+          <h2>{{.Title}}</h2>
+          <span class="state {{.Status}}">{{.Status}}</span>
+        </div>
+
+        <div class="facts">
+          {{.Kind}} ·
+          <button class="seek-to" type="button" data-line="{{.Binding.StartLine}}">L{{.Binding.StartLine}}–{{.Binding.EndLine}}</button>
+          {{if .Binding.SymbolPath}} · {{.Binding.SymbolPath}}{{end}}
+          {{if lt .Binding.Confidence 1.0}} · {{printf "%.0f%%" (mul .Binding.Confidence 100)}} confidence{{end}}
+          · {{.Author}}
+        </div>
+
+        <p class="prose">{{.Body}}</p>
+
+        {{with index $.Candidates .ID}}
+        <section class="fix">
+          <h3>Lost its place — {{len .}} suggestion{{if ne (len .) 1}}s{{end}}</h3>
+          {{range .}}
+          <div class="option">
+            <div class="option-top">
+              <span class="at">L{{.StartLine}}–{{.EndLine}}</span>
+              <span class="how">{{.Reason}}</span>
+              <span class="score">{{printf "%.0f%%" (mul .Confidence 100)}}</span>
+            </div>
+            <pre>{{.Preview}}</pre>
+            <button class="act" type="button" data-anchor="{{$anchorID}}" data-candidate="{{.Index}}">Pin here</button>
+          </div>
+          {{end}}
+        </section>
+        {{end}}
+
+        {{with index $.History .ID}}
+        {{/* Open once something has actually happened; a lone creation event is
+             not worth unfolding. */}}
+        <details class="past" {{if gt (len .) 1}}open{{end}}>
+          <summary>{{len .}} event{{if ne (len .) 1}}s{{end}}</summary>
+          <ul>
+            {{range .}}
+            <li class="{{.Type}}">
+              <span class="verb">{{.Type}}</span>
+              <span class="detail">
+                {{if .Reason}}{{.Reason}}{{end}}
+                {{if and .FromRange .ToRange}}{{if ne .FromRange .ToRange}}
+                <span class="from-to">{{.FromRange}} → {{.ToRange}}</span>
+                {{end}}{{end}}
+              </span>
+            </li>
+            {{end}}
+          </ul>
+        </details>
+        {{end}}
+
+        {{with index $.Comments .ID}}
+        {{range .}}
+        <div class="reply">
+          <div class="by">{{.Author}}</div>
+          <div>{{.Body}}</div>
+        </div>
+        {{end}}
+        {{end}}
+      </article>
+      {{else}}
+      <p class="nothing">No anchors in this file.</p>
+      {{end}}
+
+      <div class="col-title">Working tree diff</div>
+      <div class="changes">
+        {{if .Diff}}<pre id="diff">{{.Diff}}</pre>{{else}}<p class="nothing">Clean.</p>{{end}}
+      </div>
+    </aside>
+  </div>
+
+<script>
+(function () {
+  // Filter the file list without a round trip.
+  var find = document.getElementById('find');
+  if (find) {
+    find.addEventListener('input', function () {
+      var needle = find.value.toLowerCase();
+      document.querySelectorAll('#tree .leaf').forEach(function (el) {
+        var path = (el.getAttribute('data-path') || '').toLowerCase();
+        el.hidden = path.indexOf(needle) === -1;
+      });
+    });
+  }
+
+  // Jump the listing to an anchor's first line and mark it briefly.
+  document.querySelectorAll('.seek-to').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var row = document.getElementById('L' + el.getAttribute('data-line'));
+      if (!row) return;
+      row.scrollIntoView({ block: 'center' });
+      document.querySelectorAll('.ln.seek').forEach(function (previous) {
+        previous.classList.remove('seek');
+      });
+      row.classList.add('seek');
+    });
+  });
+
+  // Accepting a relocation re-pins the anchor, then reloads so every panel
+  // reflects the new state rather than just the button that was clicked.
+  document.querySelectorAll('.act').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var anchorID = button.getAttribute('data-anchor');
+      var candidate = parseInt(button.getAttribute('data-candidate'), 10);
+      var label = button.textContent;
+      button.disabled = true;
+      button.removeAttribute('data-state');
+      button.textContent = 'Pinning';
+      fetch('/v1/anchors/' + encodeURIComponent(anchorID) + '/relocate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidate: candidate })
+      }).then(function (response) {
+        if (!response.ok) {
+          return response.json().then(function (body) {
+            throw new Error(body.error || response.statusText);
+          });
+        }
+        window.location.reload();
+      }).catch(function (err) {
+        button.disabled = false;
+        button.setAttribute('data-state', 'error');
+        button.textContent = label + ' — failed';
+        button.title = err.message;
+      });
+    });
+  });
+
+  // Colour the unified diff by line polarity.
+  var diff = document.getElementById('diff');
+  if (diff) {
+    diff.innerHTML = diff.textContent.split('\n').map(function (line) {
+      var cls = line.slice(0, 2) === '@@' ? 'at'
+              : line.charAt(0) === '+' ? 'plus'
+              : line.charAt(0) === '-' ? 'minus' : '';
+      var safe = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return cls ? '<span class="' + cls + '">' + safe + '</span>' : safe;
+    }).join('\n');
+  }
+}());
+</script>
+</body>
+</html>

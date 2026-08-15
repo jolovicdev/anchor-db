@@ -1,0 +1,42 @@
+package symbols
+
+import (
+	"context"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+
+	"github.com/jolovicdev/anchor-db/internal/code"
+	"github.com/jolovicdev/anchor-db/internal/domain"
+)
+
+type javascriptExtractor struct {
+	language *sitter.Language
+}
+
+func newJavaScriptExtractor() *javascriptExtractor {
+	return &javascriptExtractor{
+		language: sitter.NewLanguage(tree_sitter_javascript.Language()),
+	}
+}
+
+func (j *javascriptExtractor) Extract(ctx context.Context, path string, content []byte) ([]domain.Symbol, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(j.language); err != nil {
+		return nil, err
+	}
+	tree := parser.Parse(content, nil)
+	defer tree.Close()
+	root := tree.RootNode()
+	cursor := root.Walk()
+	defer cursor.Close()
+
+	return walkNamed(code.NewPositionIndex(string(content)), path, "javascript", content, root, cursor, map[string]string{
+		"function_declaration": "function",
+		"class_declaration":    "class",
+	}), nil
+}
